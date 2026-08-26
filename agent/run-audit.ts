@@ -12,6 +12,7 @@
  *   npx tsx agent/run-audit.ts
  */
 
+import { createClient, startAuditSession, handleApproval } from './agent-spec.js';
 import { TrueForge } from '@truefoundry/trueforge-sdk';
 
 const REPO_URL = 'https://github.com/Kartikinfinity/attest.git';
@@ -28,7 +29,6 @@ async function main() {
   });
   console.log(`✅ Session created: ${session.id}`);
 
-  // We constrain the prompt for this vertical slice to just the get_invoice WOW case.
   const prompt = `
 You are auditing an MCP server.
 Repo: ${REPO_URL}
@@ -36,13 +36,18 @@ Directory: ${SERVER_DIR}
 Fixture: SQLite database at fixture.db
 
 Tasks:
-1. Clone the repo and cd into the directory.
-2. Run \`npm install\` and \`npm run seed\` to prepare the fixture.
-3. Start the server in the background: \`npm run start &\`.
-4. Wait for it to listen on port 3001.
-5. Create a script that reads the row count of \`audit_log\` from fixture.db, calls the MCP tool \`get_invoice\` via HTTP POST to http://localhost:3001/mcp with \`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_invoice","arguments":{"invoice_id":1}}}\`, and reads the row count of \`audit_log\` again.
-6. Execute the script in the sandbox.
-7. Return the final Evidence JSON object showing the before and after state.
+1. Run sandbox-scripts/discover-tools.ts to clone the repo, prepare the fixture, start the server, and list tools.
+   Command: npx tsx sandbox-scripts/discover-tools.ts "${REPO_URL}" "${SERVER_DIR}" 3055
+
+2. For EACH tool discovered, spawn a separate Subagent. Assign each subagent a unique port (e.g., 3056, 3057, 3058) and give it these instructions:
+   - Run sandbox-scripts/test-tool.ts with your assigned port to safely test the tool against its own isolated fixture copy.
+   - Example Command: npx tsx sandbox-scripts/test-tool.ts . <tool_name> fixture.db <port> '<test_input_json>'
+   - Return the Evidence JSON to the root agent.
+
+3. After all subagents complete, compile their Evidence.
+   Do NOT decide the verdicts yourself.
+   
+4. Finally, call the \`publish_certification\` tool (from the attest-internal MCP server) with the compiled CertificationReport JSON containing the evidence.
 `;
 
   console.log('\nSending audit instructions:');
@@ -65,8 +70,28 @@ Tasks:
       console.log('\n\n✅ Turn complete.');
     } else if (event.type === 'sandbox.created') {
       console.log('\n[Sandbox Created]');
-    } else if (event.type === 'tool.response') {
-      console.log(`\n[Tool Executed: ${event.toolCallId}]`);
+    } else if (event.type === 'tool.approval_required') {
+      console.log('\n\n[PAUSED FOR HUMAN APPROVAL]');
+      console.log(`The agent wants to call tools: ${event.toolCalls.map((t: any) => t.name).join(', ')}`);
+      console.log('Simulating human review... approving in 2 seconds.');
+      
+      await new Promise(r => setTimeout(r, 2000));
+      
+      const nextStream = await handleApproval(client, session.id, {
+        threadId: event.threadId,
+        toolCallId: event.toolCalls[0].id
+      }, { allow: true });
+
+      // Continue streaming the resumed turn
+      for await (const { data: nextEvent } of nextStream.withMetadata()) {
+        if (nextEvent.type === 'model.message' && typeof nextEvent.content === 'string') {
+          process.stdout.write(nextEvent.content);
+        } else if (nextEvent.type === 'turn.done') {
+          console.log('\n\n✅ Turn complete (post-approval).');
+        } else if (nextEvent.type === 'tool.response') {
+          console.log(`\n[Tool Executed (post-approval): ${nextEvent.toolCallId}]`);
+        }
+      }
     } else {
       // Optional: log other event types for debugging
       // console.log(`\n[Event: ${event.type}]`);

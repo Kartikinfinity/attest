@@ -4,8 +4,9 @@
   "private": true,
   "description": "Execution-based MCP server behavior verification system",
   "workspaces": [
-    "apps/web",
-    "packages/verdict-engine"
+    "apps/*",
+    "packages/*",
+    "demo-servers/*"
   ],
   "scripts": {
     "dev": "npm run dev --workspace=apps/web",

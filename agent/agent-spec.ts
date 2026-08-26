@@ -46,9 +46,10 @@ export async function registerAuditorAgent(client: TrueForge): Promise<void> {
       // Instructions: imported from prompts/ for easy iteration
       instructions: AUDITOR_INSTRUCTIONS,
 
-      // MCP servers: only GitHub (read-only) for cloning submitted repos
+      // MCP servers: GitHub (read-only) for repo cloning + internal for publishing
       mcpServers: [
         { name: 'github', enableTools: ['@read-only'] },
+        { name: 'attest-internal', requireApprovalForTools: ['publish_certification'] },
       ],
 
       // Config: enable sandbox isolation + parallel subagent fan-out
