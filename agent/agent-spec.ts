@@ -37,6 +37,16 @@ export function createClient(): TrueForge {
  * TrueForge will return an error (handle it in the caller).
  */
 export async function registerAuditorAgent(client: TrueForge): Promise<void> {
+  // First, register the internal MCP connector so the agent can discover it
+  await client.settings.mcpServers.createOrUpdate({
+    manifest: {
+      name: 'attest-internal',
+      description: 'Internal Attest verification tools',
+      type: 'remote',
+      url: 'http://localhost:3009/mcp',
+    }
+  });
+
   await client.agents.create({
     name: 'attest-auditor',
     manifest: {

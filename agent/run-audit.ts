@@ -41,7 +41,7 @@ Tasks:
 
 2. For EACH tool discovered, spawn a separate Subagent. Assign each subagent a unique port (e.g., 3056, 3057, 3058) and give it these instructions:
    - Run sandbox-scripts/test-tool.ts with your assigned port to safely test the tool against its own isolated fixture copy.
-   - Example Command: npx tsx sandbox-scripts/test-tool.ts . <tool_name> fixture.db <port> '<test_input_json>'
+   - Example Command: npx tsx sandbox-scripts/test-tool.ts .sandbox-tmp/repo/${SERVER_DIR} <tool_name> .sandbox-tmp/repo/${SERVER_DIR}/fixture.db <port> '<test_input_json>'
    - Return the Evidence JSON to the root agent.
 
 3. After all subagents complete, compile their Evidence.
@@ -58,45 +58,55 @@ Tasks:
   });
 
   console.log('\n--- Streamed Events ---');
-  let finalEvidence = '';
 
-  for await (const { data: event } of stream.withMetadata()) {
-    if (event.type === 'model.message') {
-      if (typeof event.content === 'string') {
-        process.stdout.write(event.content);
-        finalEvidence += event.content;
-      }
-    } else if (event.type === 'turn.done') {
-      console.log('\n\n✅ Turn complete.');
-    } else if (event.type === 'sandbox.created') {
-      console.log('\n[Sandbox Created]');
-    } else if (event.type === 'tool.approval_required') {
-      console.log('\n\n[PAUSED FOR HUMAN APPROVAL]');
-      console.log(`The agent wants to call tools: ${event.toolCalls.map((t: any) => t.name).join(', ')}`);
-      console.log('Simulating human review... approving in 2 seconds.');
-      
-      await new Promise(r => setTimeout(r, 2000));
-      
-      const nextStream = await handleApproval(client, session.id, {
-        threadId: event.threadId,
-        toolCallId: event.toolCalls[0].id
-      }, { allow: true });
+  async function consumeStream(currentStream: any) {
+    for await (const { data: event } of currentStream.withMetadata()) {
+      if (event.type === 'model.message') {
+        if (typeof event.content === 'string') {
+          process.stdout.write(event.content);
+        }
+      } else if (event.type === 'turn.done') {
+        console.log('\n\n✅ Turn complete.');
+      } else if (event.type === 'sandbox.created') {
+        console.log('\n[Sandbox Created]');
+      } else if (event.type === 'tool.response') {
+        console.log(`\n[Tool Executed: ${event.toolCallId}]`);
+      } else if (event.type === 'tool.approval_required') {
+        console.log('\n\n[PAUSED FOR HUMAN APPROVAL]');
+        console.log(`The agent wants to call tools: ${event.toolCalls.map((t: any) => t.name).join(', ')}`);
+        
+        const readline = await import('node:readline');
+        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+        
+        const answer = await new Promise<string>(resolve => {
+          rl.question('Approve this tool call? (y/n): ', resolve);
+        });
+        rl.close();
 
-      // Continue streaming the resumed turn
-      for await (const { data: nextEvent } of nextStream.withMetadata()) {
-        if (nextEvent.type === 'model.message' && typeof nextEvent.content === 'string') {
-          process.stdout.write(nextEvent.content);
-        } else if (nextEvent.type === 'turn.done') {
-          console.log('\n\n✅ Turn complete (post-approval).');
-        } else if (nextEvent.type === 'tool.response') {
-          console.log(`\n[Tool Executed (post-approval): ${nextEvent.toolCallId}]`);
+        const allow = answer.trim().toLowerCase() === 'y';
+        if (!allow) {
+          console.log('Denying tool call...');
+        } else {
+          console.log('Approving tool call...');
+        }
+
+        let currentThreadStream = null;
+        for (const toolCall of event.toolCalls) {
+          currentThreadStream = await handleApproval(client, session.id, {
+            threadId: event.threadId,
+            toolCallId: toolCall.id
+          }, { allow, reason: allow ? undefined : 'User denied' });
+        }
+
+        // Recursively consume the resumed stream from the last approval
+        if (currentThreadStream) {
+          await consumeStream(currentThreadStream);
         }
       }
-    } else {
-      // Optional: log other event types for debugging
-      // console.log(`\n[Event: ${event.type}]`);
     }
   }
+
+  await consumeStream(stream);
 
   console.log('\n--- Final Output ---');
   console.log('Look for the Evidence JSON object above. It should show the audit_log diff!');

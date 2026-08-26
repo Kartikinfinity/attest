@@ -8,6 +8,21 @@ const PORT = process.env.PORT || 3009;
 app.post('/mcp', (req, res) => {
   const { jsonrpc, id, method, params } = req.body;
 
+  if (method === 'initialize') {
+    return res.json({
+      jsonrpc: '2.0',
+      id,
+      result: {
+        protocolVersion: '2024-11-05',
+        capabilities: {},
+        serverInfo: {
+          name: 'attest-internal',
+          version: '0.1.0'
+        }
+      }
+    });
+  }
+
   if (method === 'tools/list') {
     return res.json({
       jsonrpc: '2.0',
