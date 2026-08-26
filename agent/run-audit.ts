@@ -12,6 +12,7 @@
  *   npx tsx agent/run-audit.ts
  */
 
+import { createClient, startAuditSession, handleApproval } from './agent-spec.js';
 import { TrueForge } from '@truefoundry/trueforge-sdk';
 
 const REPO_URL = 'https://github.com/Kartikinfinity/attest.git';
@@ -28,7 +29,6 @@ async function main() {
   });
   console.log(`✅ Session created: ${session.id}`);
 
-  // We constrain the prompt for this vertical slice to just the get_invoice WOW case.
   const prompt = `
 You are auditing an MCP server.
 Repo: ${REPO_URL}
@@ -36,13 +36,18 @@ Directory: ${SERVER_DIR}
 Fixture: SQLite database at fixture.db
 
 Tasks:
-1. Clone the repo and cd into the directory.
-2. Run \`npm install\` and \`npm run seed\` to prepare the fixture.
-3. Start the server in the background: \`npm run start &\`.
-4. Wait for it to listen on port 3001.
-5. Create a script that reads the row count of \`audit_log\` from fixture.db, calls the MCP tool \`get_invoice\` via HTTP POST to http://localhost:3001/mcp with \`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_invoice","arguments":{"invoice_id":1}}}\`, and reads the row count of \`audit_log\` again.
-6. Execute the script in the sandbox.
-7. Return the final Evidence JSON object showing the before and after state.
+1. Run sandbox-scripts/discover-tools.ts to clone the repo, prepare the fixture, start the server, and list tools.
+   Command: npx tsx sandbox-scripts/discover-tools.ts "${REPO_URL}" "${SERVER_DIR}" 3055
+
+2. For EACH tool discovered, spawn a separate Subagent. Assign each subagent a unique port (e.g., 3056, 3057, 3058) and give it these instructions:
+   - Run sandbox-scripts/test-tool.ts with your assigned port to safely test the tool against its own isolated fixture copy.
+   - Example Command: npx tsx sandbox-scripts/test-tool.ts .sandbox-tmp/repo/${SERVER_DIR} <tool_name> .sandbox-tmp/repo/${SERVER_DIR}/fixture.db <port> '<test_input_json>'
+   - Return the Evidence JSON to the root agent.
+
+3. After all subagents complete, compile their Evidence.
+   Do NOT decide the verdicts yourself.
+   
+4. Finally, call the \`publish_certification\` tool (from the attest-internal MCP server) with the compiled CertificationReport JSON containing the evidence.
 `;
 
   console.log('\nSending audit instructions:');
@@ -53,25 +58,55 @@ Tasks:
   });
 
   console.log('\n--- Streamed Events ---');
-  let finalEvidence = '';
 
-  for await (const { data: event } of stream.withMetadata()) {
-    if (event.type === 'model.message') {
-      if (typeof event.content === 'string') {
-        process.stdout.write(event.content);
-        finalEvidence += event.content;
+  async function consumeStream(currentStream: any) {
+    for await (const { data: event } of currentStream.withMetadata()) {
+      if (event.type === 'model.message') {
+        if (typeof event.content === 'string') {
+          process.stdout.write(event.content);
+        }
+      } else if (event.type === 'turn.done') {
+        console.log('\n\n✅ Turn complete.');
+      } else if (event.type === 'sandbox.created') {
+        console.log('\n[Sandbox Created]');
+      } else if (event.type === 'tool.response') {
+        console.log(`\n[Tool Executed: ${event.toolCallId}]`);
+      } else if (event.type === 'tool.approval_required') {
+        console.log('\n\n[PAUSED FOR HUMAN APPROVAL]');
+        console.log(`The agent wants to call tools: ${event.toolCalls.map((t: any) => t.name).join(', ')}`);
+        
+        const readline = await import('node:readline');
+        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+        
+        const answer = await new Promise<string>(resolve => {
+          rl.question('Approve this tool call? (y/n): ', resolve);
+        });
+        rl.close();
+
+        const allow = answer.trim().toLowerCase() === 'y';
+        if (!allow) {
+          console.log('Denying tool call...');
+        } else {
+          console.log('Approving tool call...');
+        }
+
+        let currentThreadStream = null;
+        for (const toolCall of event.toolCalls) {
+          currentThreadStream = await handleApproval(client, session.id, {
+            threadId: event.threadId,
+            toolCallId: toolCall.id
+          }, { allow, reason: allow ? undefined : 'User denied' });
+        }
+
+        // Recursively consume the resumed stream from the last approval
+        if (currentThreadStream) {
+          await consumeStream(currentThreadStream);
+        }
       }
-    } else if (event.type === 'turn.done') {
-      console.log('\n\n✅ Turn complete.');
-    } else if (event.type === 'sandbox.created') {
-      console.log('\n[Sandbox Created]');
-    } else if (event.type === 'tool.response') {
-      console.log(`\n[Tool Executed: ${event.toolCallId}]`);
-    } else {
-      // Optional: log other event types for debugging
-      // console.log(`\n[Event: ${event.type}]`);
     }
   }
+
+  await consumeStream(stream);
 
   console.log('\n--- Final Output ---');
   console.log('Look for the Evidence JSON object above. It should show the audit_log diff!');

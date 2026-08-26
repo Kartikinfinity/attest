@@ -37,6 +37,16 @@ export function createClient(): TrueForge {
  * TrueForge will return an error (handle it in the caller).
  */
 export async function registerAuditorAgent(client: TrueForge): Promise<void> {
+  // First, register the internal MCP connector so the agent can discover it
+  await client.settings.mcpServers.createOrUpdate({
+    manifest: {
+      name: 'attest-internal',
+      description: 'Internal Attest verification tools',
+      type: 'remote',
+      url: 'http://localhost:3009/mcp',
+    }
+  });
+
   await client.agents.create({
     name: 'attest-auditor',
     manifest: {
@@ -46,9 +56,10 @@ export async function registerAuditorAgent(client: TrueForge): Promise<void> {
       // Instructions: imported from prompts/ for easy iteration
       instructions: AUDITOR_INSTRUCTIONS,
 
-      // MCP servers: only GitHub (read-only) for cloning submitted repos
+      // MCP servers: GitHub (read-only) for repo cloning + internal for publishing
       mcpServers: [
         { name: 'github', enableTools: ['@read-only'] },
+        { name: 'attest-internal', requireApprovalForTools: ['publish_certification'] },
       ],
 
       // Config: enable sandbox isolation + parallel subagent fan-out
