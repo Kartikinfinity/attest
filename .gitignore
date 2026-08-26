@@ -40,3 +40,7 @@ coverage/
 *.db-wal
 *.db-shm
 
+
+# Sandbox tmp
+.sandbox-tmp/
+
