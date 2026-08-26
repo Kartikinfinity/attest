@@ -31,28 +31,41 @@ if (!REPO_URL || !SERVER_DIR) {
 const SANDBOX_DIR = path.join(process.cwd(), '.sandbox-tmp');
 const CLONE_DIR = path.join(SANDBOX_DIR, 'repo');
 
+async function waitForServer(port: string) {
+  for (let i = 0; i < 30; i++) {
+    try {
+      const res = await fetch(`http://localhost:${port}/mcp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 0, method: 'tools/list' }),
+      });
+      if (res.ok) return;
+    } catch {
+      // Server not ready yet
+    }
+    await new Promise(r => setTimeout(r, 500));
+  }
+  throw new Error('Server start timeout');
+}
+
 async function main() {
   console.log(`[discover-tools] Starting discovery for ${REPO_URL}`);
 
-  // 1. Clean and clone
   if (existsSync(SANDBOX_DIR)) {
     await rm(SANDBOX_DIR, { recursive: true, force: true });
   }
   console.log(`[discover-tools] Cloning to ${CLONE_DIR}...`);
   execSync(`git clone "${REPO_URL}" "${CLONE_DIR}"`, { stdio: 'inherit' });
 
-  // 2. Install dependencies
   const targetDir = path.join(CLONE_DIR, SERVER_DIR);
   console.log(`[discover-tools] Installing dependencies in ${targetDir}...`);
   execSync('npm install', { cwd: targetDir, stdio: 'inherit' });
 
-  // Seed fixture if requested (for invoice-server specifically, as an MVP shortcut)
   if (existsSync(path.join(targetDir, 'src', 'seed-fixture.ts'))) {
     console.log('[discover-tools] Seeding fixture...');
     execSync('npm run seed', { cwd: targetDir, stdio: 'inherit' });
   }
 
-  // 3. Start server
   console.log(`[discover-tools] Starting server on port ${PORT}...`);
   const serverProcess = spawn('npm', ['run', 'start'], {
     cwd: targetDir,
@@ -63,38 +76,33 @@ async function main() {
 
   serverProcess.stderr.on('data', (d) => console.error(`[server err]: ${d}`));
 
-  // Wait for server to start
-  await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error('Server start timeout')), 15000);
-    serverProcess.stdout.on('data', (d) => {
-      // console.log(`[server]: ${d}`);
-      if (d.toString().includes('running on http')) {
-        clearTimeout(timeout);
-        resolve();
-      }
+  try {
+    await waitForServer(PORT);
+    console.log('[discover-tools] Server started. Calling tools/list...');
+
+    const res = await fetch(`http://localhost:${PORT}/mcp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
     });
-  });
 
-  console.log('[discover-tools] Server started. Calling tools/list...');
+    if (!res.ok) {
+      throw new Error(`tools/list failed with status ${res.status}`);
+    }
 
-  // 4. Call tools/list
-  const res = await fetch(`http://localhost:${PORT}/mcp`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
-  });
+    const data = await res.json();
+    if (data.error) {
+      throw new Error(`tools/list JSON-RPC error: ${JSON.stringify(data.error)}`);
+    }
 
-  if (!res.ok) {
-    throw new Error(`tools/list failed with status ${res.status}`);
+    console.log('\n[discover-tools] ✅ Discovered Tools:\n');
+    console.log(JSON.stringify(data, null, 2));
+
+  } finally {
+    console.log('\n[discover-tools] Shutting down server...');
+    serverProcess.kill();
   }
-
-  const data = await res.json();
-  console.log('\n[discover-tools] ✅ Discovered Tools:\n');
-  console.log(JSON.stringify(data, null, 2));
-
-  // Cleanup
-  console.log('\n[discover-tools] Shutting down server...');
-  serverProcess.kill();
+  
   process.exit(0);
 }
 

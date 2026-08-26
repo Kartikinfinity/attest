@@ -36,7 +36,8 @@ async function getSnapshot(dbPath: string) {
   const rows: Record<string, unknown[]> = {};
   for (const table of tables) {
     if (table.name === 'sqlite_sequence') continue;
-    rows[table.name] = db.prepare(`SELECT * FROM ${table.name}`).all();
+    // Safely quote table names
+    rows[table.name] = db.prepare(`SELECT * FROM "${table.name.replace(/"/g, '""')}"`).all();
   }
   db.close();
   return {
@@ -46,25 +47,48 @@ async function getSnapshot(dbPath: string) {
 }
 
 function computeDiff(before: any, after: any) {
-  const diff: { table: string; change: 'added' | 'removed' | 'modified'; rowSummary: string }[] = [];
-  
-  for (const table of Object.keys(after.rows)) {
-    const bRows = before.rows[table] || [];
-    const aRows = after.rows[table] || [];
+  const diff: { table: string; change: 'added' | 'removed' | 'modified' | 'table_added' | 'table_removed'; rowSummary: string }[] = [];
+  const allTables = new Set([...Object.keys(before.rows), ...Object.keys(after.rows)]);
+
+  for (const table of allTables) {
+    if (!before.rows[table]) {
+      diff.push({ table, change: 'table_added', rowSummary: 'Table created' });
+      continue;
+    }
+    if (!after.rows[table]) {
+      diff.push({ table, change: 'table_removed', rowSummary: 'Table dropped' });
+      continue;
+    }
+
+    const bRows = before.rows[table];
+    const aRows = after.rows[table];
     
-    // Simplistic diff for MVP: just compare row counts
     if (aRows.length > bRows.length) {
       diff.push({ table, change: 'added', rowSummary: `${aRows.length - bRows.length} rows added` });
     } else if (aRows.length < bRows.length) {
       diff.push({ table, change: 'removed', rowSummary: `${bRows.length - aRows.length} rows removed` });
-    } else {
-      // Very basic modification check (stringify)
-      if (JSON.stringify(bRows) !== JSON.stringify(aRows)) {
-        diff.push({ table, change: 'modified', rowSummary: `rows modified` });
-      }
+    } else if (JSON.stringify(bRows) !== JSON.stringify(aRows)) {
+      diff.push({ table, change: 'modified', rowSummary: `rows modified` });
     }
   }
   return diff;
+}
+
+async function waitForServer(port: string) {
+  for (let i = 0; i < 30; i++) {
+    try {
+      const res = await fetch(`http://localhost:${port}/mcp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 0, method: 'tools/list' }),
+      });
+      if (res.ok) return;
+    } catch {
+      // Server not ready yet
+    }
+    await new Promise(r => setTimeout(r, 500));
+  }
+  throw new Error('Server start timeout');
 }
 
 async function main() {
@@ -72,13 +96,9 @@ async function main() {
     throw new Error(`Fixture not found: ${fixtureSource}`);
   }
 
-  // 1. Copy fixture (Subagent isolation)
   copyFileSync(fixtureSource, fixtureCopy);
-
-  // 2. Snapshot before
   const beforeSnapshot = await getSnapshot(fixtureCopy);
 
-  // 3. Start server
   const serverProcess = spawn('npm', ['run', 'start'], {
     cwd: serverDir,
     env: { ...process.env, PORT: port, FIXTURE_PATH: path.resolve(fixtureCopy) },
@@ -86,19 +106,9 @@ async function main() {
     shell: true,
   });
 
-  await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error('Server start timeout')), 15000);
-    serverProcess.stdout.on('data', (d) => {
-      if (d.toString().includes('running on http')) {
-        clearTimeout(timeout);
-        resolve();
-      }
-    });
-  });
-
-  // 4. Call tool
-  let rawResponse: unknown;
   try {
+    await waitForServer(port);
+
     const res = await fetch(`http://localhost:${port}/mcp`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -109,38 +119,36 @@ async function main() {
         params: { name: toolName, arguments: args },
       }),
     });
-    rawResponse = await res.json();
+
+    const rawResponse = await res.json();
+    
+    if (!res.ok || rawResponse.error) {
+      throw new Error(`MCP test call failed: ${JSON.stringify(rawResponse)}`);
+    }
+
+    const afterSnapshot = await getSnapshot(fixtureCopy);
+    const diff = computeDiff(beforeSnapshot, afterSnapshot);
+
+    const evidence = {
+      toolName,
+      testInput: args,
+      before: beforeSnapshot,
+      after: afterSnapshot,
+      diff,
+      rawResponse,
+    };
+
+    console.log('--- EVIDENCE JSON ---');
+    console.log(JSON.stringify(evidence, null, 2));
+    console.log('---------------------');
   } finally {
     serverProcess.kill();
+    try {
+      unlinkSync(fixtureCopy);
+      unlinkSync(`${fixtureCopy}-wal`);
+      unlinkSync(`${fixtureCopy}-shm`);
+    } catch { /* ignore cleanup errors */ }
   }
-
-  // 5. Snapshot after
-  const afterSnapshot = await getSnapshot(fixtureCopy);
-
-  // 6. Compute diff
-  const diff = computeDiff(beforeSnapshot, afterSnapshot);
-
-  // 7. Cleanup copy
-  try {
-    unlinkSync(fixtureCopy);
-    unlinkSync(`${fixtureCopy}-wal`);
-    unlinkSync(`${fixtureCopy}-shm`);
-  } catch { /* ignore */ }
-
-  // 8. Output Evidence
-  const evidence = {
-    toolName,
-    testInput: args,
-    before: beforeSnapshot,
-    after: afterSnapshot,
-    diff,
-    rawResponse,
-  };
-
-  // The agent parses this JSON block
-  console.log('--- EVIDENCE JSON ---');
-  console.log(JSON.stringify(evidence, null, 2));
-  console.log('---------------------');
 }
 
 main().catch(err => {
