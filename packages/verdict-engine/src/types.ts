@@ -35,7 +35,7 @@ export interface FixtureSnapshot {
 /** A single row-level change detected between two snapshots. */
 export interface FixtureDiffEntry {
   table: string;
-  change: 'added' | 'removed' | 'modified';
+  change: 'added' | 'removed' | 'modified' | 'table_added' | 'table_removed';
   rowSummary: string;
 }
 
