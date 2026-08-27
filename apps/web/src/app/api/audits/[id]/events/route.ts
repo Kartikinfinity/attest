@@ -1,5 +1,7 @@
 import { getEvents, getRun } from '../../../../../../lib/models';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -7,10 +9,11 @@ export async function GET(
   const { id } = await params;
 
   let lastId = 0;
-  
+
   const stream = new ReadableStream({
     async start(controller) {
-      controller.enqueue(new TextEncoder().encode("event: connected\\ndata: ok\\n\\n"));
+      const enc = new TextEncoder();
+      controller.enqueue(enc.encode("event: connected\ndata: ok\n\n"));
 
       const interval = setInterval(() => {
         const run = getRun(id);
@@ -23,18 +26,14 @@ export async function GET(
         const events = getEvents(id, lastId);
         for (const ev of events) {
           controller.enqueue(
-            new TextEncoder().encode(
-              "event: audit_event\\ndata: " + JSON.stringify(ev) + "\\n\\n"
-            )
+            enc.encode("event: audit_event\ndata: " + JSON.stringify(ev) + "\n\n")
           );
           lastId = ev.id;
         }
 
         if (run.status === 'COMPLETED' || run.status === 'FAILED') {
           controller.enqueue(
-            new TextEncoder().encode(
-              "event: audit_complete\\ndata: " + JSON.stringify({ status: run.status }) + "\\n\\n"
-            )
+            enc.encode("event: audit_complete\ndata: " + JSON.stringify({ status: run.status }) + "\n\n")
           );
           clearInterval(interval);
           controller.close();

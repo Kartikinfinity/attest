@@ -92,21 +92,22 @@ export default function RunPage({ params }: { params: Promise<{ id: string }> })
   if (!run) return <div className="p-12 text-center text-gray-500">Loading audit state...</div>;
 
   const repoName = run.server_dir.split('/').pop();
-
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 font-sans">
-      <header className="border-b bg-white sticky top-0 z-10">
-        <div className="mx-auto max-w-6xl px-4 py-4 flex items-center justify-between">
+    <div className="min-h-screen bg-neutral-50 text-neutral-900 font-sans selection:bg-blue-100">
+      <header className="border-b bg-white/80 backdrop-blur-md sticky top-0 z-50">
+        <div className="mx-auto max-w-6xl px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Link href="/" className="text-gray-400 hover:text-gray-900 transition-colors">ATTEST</Link>
-            <span className="text-gray-300">/</span>
-            <h1 className="font-mono font-semibold">{repoName}</h1>
+            <Link href="/" className="text-neutral-500 hover:text-neutral-900 font-medium transition-colors flex items-center gap-2">
+              <Shield className="h-5 w-5" /> ATTEST
+            </Link>
+            <span className="text-neutral-300">/</span>
+            <h1 className="font-mono font-semibold text-neutral-900">{repoName}</h1>
             {run.status === 'COMPLETED' ? (
-              <span className="ml-4 inline-flex items-center gap-1.5 rounded-md bg-gray-100 px-2 py-1 text-xs font-bold text-gray-600 ring-1 ring-gray-500/10 ring-inset">COMPLETED</span>
+              <span className="ml-4 inline-flex items-center gap-1.5 rounded-md bg-neutral-100 px-2.5 py-1 text-xs font-bold text-neutral-600 ring-1 ring-neutral-500/10 ring-inset">COMPLETED</span>
             ) : run.status === 'FAILED' ? (
-               <span className="ml-4 inline-flex items-center gap-1.5 rounded-md bg-red-100 px-2 py-1 text-xs font-bold text-red-700 ring-1 ring-red-600/10 ring-inset">FAILED</span>
+               <span className="ml-4 inline-flex items-center gap-1.5 rounded-md bg-red-100 px-2.5 py-1 text-xs font-bold text-red-700 ring-1 ring-red-600/10 ring-inset">FAILED</span>
             ) : (
-              <span className="ml-4 inline-flex items-center gap-1.5 rounded-md bg-blue-50 px-2 py-1 text-xs font-bold text-blue-700 ring-1 ring-blue-600/20 ring-inset">
+              <span className="ml-4 inline-flex items-center gap-1.5 rounded-md bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-700 ring-1 ring-blue-600/20 ring-inset">
                 <span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span></span>
                 AUDIT IN PROGRESS
               </span>
@@ -115,28 +116,34 @@ export default function RunPage({ params }: { params: Promise<{ id: string }> })
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 py-8 grid grid-cols-12 gap-8">
+      <main className="mx-auto max-w-6xl px-6 py-10 grid grid-cols-12 gap-8">
         
         {/* Left Column: Timeline & Tools list */}
         <div className="col-span-12 md:col-span-4 space-y-6">
-          <div className="bg-white rounded-xl border p-5 shadow-sm">
-            <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-4">Investigation Progress</h3>
+          <div className="bg-white rounded-2xl border border-neutral-200 p-6 shadow-sm">
+            <h3 className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-5">Investigation Progress</h3>
             <div className="space-y-4">
+              {events.filter(e => e.type === 'error').map((e, i) => (
+                <div key={'err'+i} className="flex gap-3 text-sm text-red-700 bg-red-50 p-3 rounded-lg border border-red-100">
+                  <XCircle className="h-5 w-5 flex-shrink-0" />
+                  <span className="font-medium">Execution failed: {e.data.message || 'Connection refused'}</span>
+                </div>
+              ))}
               {events.filter(e => e.type === 'model.message' && typeof e.data.content === 'string' && e.data.content.includes('[Tool Executed')).map((e, i) => (
-                <div key={i} className="flex gap-3 text-sm text-gray-600">
-                  <Check className="h-5 w-5 text-green-500 flex-shrink-0" />
+                <div key={i} className="flex gap-3 text-sm text-neutral-700">
+                  <CheckCircle className="h-5 w-5 text-emerald-500 flex-shrink-0" />
                   <span>Tool executed in sandbox</span>
                 </div>
               ))}
               {run.status !== 'COMPLETED' && run.status !== 'FAILED' && (
-                <div className="flex gap-3 text-sm text-gray-400 animate-pulse">
+                <div className="flex gap-3 text-sm text-neutral-500 animate-pulse">
                   <Clock className="h-5 w-5 flex-shrink-0" />
                   <span>Observing state changes...</span>
                 </div>
               )}
               {run.status === 'COMPLETED' && (
-                <div className="flex gap-3 text-sm text-green-700 font-medium pt-2 border-t mt-4">
-                  <CheckCircle className="h-5 w-5 flex-shrink-0" />
+                <div className="flex gap-3 text-sm text-neutral-900 font-medium pt-3 border-t mt-5">
+                  <CheckCircle className="h-5 w-5 text-emerald-500 flex-shrink-0" />
                   <span>Investigation complete</span>
                 </div>
               )}
@@ -144,18 +151,18 @@ export default function RunPage({ params }: { params: Promise<{ id: string }> })
           </div>
 
           {results.length > 0 && (
-            <div className="bg-white rounded-xl border p-0 shadow-sm overflow-hidden">
-              <div className="p-4 border-b bg-gray-50/50">
-                <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wider">Tools Tested</h3>
+            <div className="bg-white rounded-2xl border border-neutral-200 p-0 shadow-sm overflow-hidden">
+              <div className="p-5 border-b bg-neutral-50/50">
+                <h3 className="text-xs font-bold text-neutral-500 uppercase tracking-widest">Tools Tested</h3>
               </div>
-              <div className="divide-y">
+              <div className="divide-y divide-neutral-100">
                 {results.map(r => (
                   <button 
                     key={r.id} 
                     onClick={() => setSelectedTool(r.tool_name)}
-                    className={`w-full text-left p-4 hover:bg-gray-50 transition-colors flex justify-between items-center ${selectedTool === r.tool_name ? 'bg-blue-50/30' : ''}`}
+                    className={'w-full text-left p-5 hover:bg-neutral-50 transition-colors flex justify-between items-center ' + (selectedTool === r.tool_name ? 'bg-blue-50/40 hover:bg-blue-50/60' : '')}
                   >
-                    <span className="font-mono text-sm text-gray-900">{r.tool_name}</span>
+                    <span className="font-mono text-sm font-medium text-neutral-900">{r.tool_name}</span>
                     {renderBadge(r.verdict, r.severity)}
                   </button>
                 ))}
@@ -167,24 +174,32 @@ export default function RunPage({ params }: { params: Promise<{ id: string }> })
         {/* Right Column: Evidence Viewer */}
         <div className="col-span-12 md:col-span-8 space-y-6">
           
+          {run.status === 'FAILED' && results.length === 0 && (
+            <div className="bg-white rounded-2xl border border-red-200 p-12 text-center text-red-700 shadow-sm flex flex-col items-center justify-center min-h-[300px]">
+              <XCircle className="h-12 w-12 text-red-300 mb-4" />
+              <h2 className="text-xl font-bold mb-2">Audit Failed to Start</h2>
+              <p className="max-w-md text-red-600/80">The TrueForge execution engine encountered an error or was unreachable. Ensure TrueForge is running locally.</p>
+            </div>
+          )}
+
           {approvalRequired && (
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-6 shadow-sm mb-6">
-              <div className="flex items-start gap-4">
-                <ShieldAlert className="h-8 w-8 text-blue-600 mt-1" />
+            <div className="bg-blue-50/80 border border-blue-200 rounded-2xl p-8 shadow-sm mb-6">
+              <div className="flex items-start gap-5">
+                <ShieldAlert className="h-10 w-10 text-blue-600 mt-1" />
                 <div className="flex-1">
-                  <h3 className="text-lg font-bold text-blue-900">CERTIFICATION READY</h3>
-                  <p className="text-blue-800 mt-1 mb-4">The agent wants to publish this audit result. Please review the findings before publishing.</p>
+                  <h3 className="text-xl font-bold text-blue-950 mb-2">CERTIFICATION READY</h3>
+                  <p className="text-blue-800/80 mb-6 font-medium">The agent wants to publish this audit result. Please review the findings before publishing.</p>
                   
-                  <div className="bg-white rounded-lg border border-blue-100 p-4 mb-5 font-mono text-sm text-gray-800">
-                    <span className="text-gray-400 block mb-2">{ '// Action requested' }</span>
+                  <div className="bg-white rounded-xl border border-blue-100 p-5 mb-6 font-mono text-sm text-neutral-800 shadow-sm">
+                    <span className="text-neutral-400 block mb-2">{ '// Action requested' }</span>
                     publish_certification
                   </div>
 
-                  <div className="flex gap-3">
-                    <button onClick={() => handleApproval(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-md font-medium text-sm transition-colors shadow-sm">
+                  <div className="flex gap-4">
+                    <button onClick={() => handleApproval(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg font-semibold text-sm transition-all shadow-sm active:scale-95">
                       Publish Report
                     </button>
-                    <button onClick={() => handleApproval(false)} className="bg-white text-blue-900 hover:bg-blue-50 px-5 py-2 rounded-md font-medium text-sm border border-blue-200 transition-colors shadow-sm">
+                    <button onClick={() => handleApproval(false)} className="bg-white text-blue-900 hover:bg-blue-50 px-6 py-2.5 rounded-lg font-semibold text-sm border border-blue-200 transition-all shadow-sm active:scale-95">
                       Deny
                     </button>
                   </div>
@@ -194,10 +209,10 @@ export default function RunPage({ params }: { params: Promise<{ id: string }> })
           )}
 
           {!selectedTool && results.length > 0 && (
-             <div className="bg-white rounded-xl border p-12 text-center text-gray-500 shadow-sm flex flex-col items-center justify-center min-h-[400px]">
-               <FileCode className="h-12 w-12 text-gray-300 mb-4" />
-               <p className="text-lg font-medium text-gray-900">Select a tool to view evidence</p>
-               <p className="mt-1">Review the declared vs observed behavior for each tested tool.</p>
+             <div className="bg-white rounded-2xl border border-neutral-200 p-12 text-center text-neutral-500 shadow-sm flex flex-col items-center justify-center min-h-[400px]">
+               <FileCode className="h-14 w-14 text-neutral-200 mb-5" />
+               <p className="text-xl font-semibold text-neutral-900 mb-2">Select a tool to view evidence</p>
+               <p className="max-w-sm text-sm">Review the declared vs observed behavior for each tested tool to verify safety.</p>
              </div>
           )}
 
@@ -215,78 +230,82 @@ export default function RunPage({ params }: { params: Promise<{ id: string }> })
 function EvidenceViewer({ toolName, result, evidence }: { toolName: string, result: any, evidence: any }) {
   const isMismatch = result.verdict === 'MISMATCH';
   
-  // Calculate raw diff counts
   const diffs = evidence.diff || [];
   const added = diffs.filter((d: any) => d.type === 'table_added' || d.type === 'row_added').length;
   const removed = diffs.filter((d: any) => d.type === 'table_removed' || d.type === 'row_removed').length;
 
   return (
-    <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-      <div className="p-6 border-b flex justify-between items-start bg-gray-50/50">
+    <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm overflow-hidden">
+      {/* Header */}
+      <div className="px-8 py-6 border-b border-neutral-100 flex justify-between items-start bg-neutral-50/60">
         <div>
-          <h2 className="text-xl font-bold font-mono text-gray-900 mb-2">{toolName}</h2>
+          <h2 className="text-xl font-bold font-mono text-neutral-900 mb-3">{toolName}</h2>
           <div className="flex gap-2">
-            {result.verdict === 'VERIFIED' ? <span className="inline-flex items-center gap-1.5 rounded-md bg-green-100 px-2 py-1 text-xs font-bold text-green-700 ring-1 ring-green-600/20 ring-inset"><CheckCircle className="h-3.5 w-3.5" /> VERIFIED</span> :
-             result.verdict === 'MISMATCH' ? <span className="inline-flex items-center gap-1.5 rounded-md bg-red-100 px-2 py-1 text-xs font-bold text-red-700 ring-1 ring-red-600/10 ring-inset"><AlertTriangle className="h-3.5 w-3.5" /> MISMATCH · {result.severity || 'HIGH'}</span> :
-             <span className="inline-flex items-center gap-1.5 rounded-md bg-yellow-100 px-2 py-1 text-xs font-bold text-yellow-800 ring-1 ring-yellow-600/20 ring-inset">UNVERIFIABLE</span>}
+            {result.verdict === 'VERIFIED' ? <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700 ring-1 ring-emerald-600/20 ring-inset"><CheckCircle className="h-3.5 w-3.5" /> VERIFIED</span> :
+             result.verdict === 'MISMATCH' ? <span className="inline-flex items-center gap-1.5 rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-700 ring-1 ring-red-600/10 ring-inset"><AlertTriangle className="h-3.5 w-3.5" /> MISMATCH · {result.severity || 'HIGH'}</span> :
+             <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800 ring-1 ring-amber-600/20 ring-inset">UNVERIFIABLE</span>}
           </div>
         </div>
       </div>
 
-      <div className="grid md:grid-cols-2 divide-x divide-gray-100">
-        <div className="p-6">
-          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">What The Server Claims</h3>
-          <div className="bg-gray-50 rounded-lg p-4 font-mono text-sm border">
-            <div className="mb-2"><span className="text-gray-500">readOnlyHint:</span> <span className="font-bold text-gray-900">{result.declared_read_only === null ? 'undefined' : String(result.declared_read_only).toUpperCase()}</span></div>
+      {/* Declared vs Observed */}
+      <div className="grid md:grid-cols-2 divide-x divide-neutral-100">
+        <div className="px-8 py-6">
+          <h3 className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-4">Declared Behavior</h3>
+          <div className="bg-neutral-50 rounded-xl p-5 font-mono text-sm border border-neutral-200">
+            <div><span className="text-neutral-400">readOnlyHint:</span> <span className="font-bold text-neutral-900">{result.declared_read_only === null ? 'undefined' : String(result.declared_read_only).toUpperCase()}</span></div>
           </div>
-          <p className="mt-4 text-sm text-gray-600">
-            {result.declared_read_only === true ? 'Expected: No state change' : result.declared_read_only === false ? 'Expected: State mutation' : 'No read-only declaration was provided, so Attest cannot compare the claim.'}
+          <p className="mt-4 text-sm text-neutral-500 leading-relaxed">
+            {result.declared_read_only === true ? 'The server declares this tool will NOT modify any state.' : result.declared_read_only === false ? 'The server declares this tool MAY modify state.' : 'No read-only declaration was provided. Attest cannot compare claimed vs observed behavior.'}
           </p>
         </div>
-        <div className="p-6">
-          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">What Actually Happened</h3>
-          <div className={`bg-gray-50 rounded-lg p-4 font-mono text-sm border ${isMismatch ? 'border-red-200 bg-red-50/30' : ''}`}>
+        <div className="px-8 py-6">
+          <h3 className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-4">Observed Behavior</h3>
+          <div className={'bg-neutral-50 rounded-xl p-5 font-mono text-sm border ' + (isMismatch ? 'border-red-300 bg-red-50/40' : 'border-neutral-200')}>
             {diffs.length === 0 ? (
-              <span className="text-gray-600">No state changes observed</span>
+              <span className="text-neutral-500">No state changes observed</span>
             ) : (
-              <div className="space-y-1">
-                <span className="text-gray-900 font-bold block mb-1">State changed</span>
-                {added > 0 && <div className="text-red-600">+{added} row/table additions</div>}
-                {removed > 0 && <div className="text-red-600">-{removed} row/table removals</div>}
+              <div className="space-y-1.5">
+                <span className="text-neutral-900 font-bold block mb-2">State was mutated</span>
+                {added > 0 && <div className="text-emerald-700 font-medium">+ {added} row/table addition{added > 1 ? 's' : ''}</div>}
+                {removed > 0 && <div className="text-red-700 font-medium">− {removed} row/table removal{removed > 1 ? 's' : ''}</div>}
               </div>
             )}
           </div>
         </div>
       </div>
 
+      {/* Mismatch Explainer */}
       {isMismatch && (
-        <div className="p-6 border-t bg-red-50/50">
-          <h3 className="text-xs font-semibold text-red-800 uppercase tracking-wider mb-2">Why This Matters</h3>
-          <p className="text-sm text-red-900">
-            This tool declares itself read-only (`readOnlyHint: true`), but execution produced a persistent state change in the test fixture. An agent using this tool to read data might accidentally mutate production state.
+        <div className="px-8 py-5 border-t border-red-200 bg-red-50/60">
+          <h3 className="text-xs font-bold text-red-800 uppercase tracking-widest mb-2">Impact</h3>
+          <p className="text-sm text-red-900/80 leading-relaxed">
+            This tool declares itself read-only, but execution produced a persistent state change. An AI agent trusting this declaration could unintentionally mutate production data.
           </p>
         </div>
       )}
 
+      {/* Diff Evidence */}
       {diffs.length > 0 && (
-        <div className="p-6 border-t bg-gray-900 text-gray-300 font-mono text-sm overflow-x-auto">
-          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">Observed Diff Evidence</h3>
-          <pre className="whitespace-pre-wrap">
+        <div className="px-8 py-6 border-t border-neutral-200 bg-neutral-950 text-neutral-300 font-mono text-sm overflow-x-auto">
+          <h3 className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-4">Observed Diff</h3>
+          <pre className="whitespace-pre-wrap leading-relaxed text-neutral-400">
             {JSON.stringify(diffs, null, 2)}
           </pre>
         </div>
       )}
 
-      <details className="border-t group">
-        <summary className="p-6 text-sm font-medium text-blue-600 cursor-pointer hover:bg-gray-50">View Raw Evidence</summary>
-        <div className="p-6 pt-0 space-y-6">
+      {/* Raw Evidence */}
+      <details className="border-t border-neutral-200 group">
+        <summary className="px-8 py-5 text-sm font-semibold text-blue-600 cursor-pointer hover:bg-neutral-50 transition-colors select-none">View Raw Evidence</summary>
+        <div className="px-8 pb-8 space-y-6">
           <div>
-            <h4 className="text-xs font-bold text-gray-500 uppercase mb-2">Test Input</h4>
-            <pre className="bg-gray-50 p-4 rounded-lg border text-xs overflow-x-auto text-gray-800">{JSON.stringify(evidence.test_input, null, 2)}</pre>
+            <h4 className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-3">Test Input</h4>
+            <pre className="bg-neutral-50 p-5 rounded-xl border border-neutral-200 text-xs overflow-x-auto text-neutral-700 leading-relaxed">{JSON.stringify(evidence.test_input, null, 2)}</pre>
           </div>
           <div>
-            <h4 className="text-xs font-bold text-gray-500 uppercase mb-2">Raw Response</h4>
-            <pre className="bg-gray-50 p-4 rounded-lg border text-xs overflow-x-auto text-gray-800">{JSON.stringify(evidence.raw_response, null, 2)}</pre>
+            <h4 className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-3">Raw Response</h4>
+            <pre className="bg-neutral-50 p-5 rounded-xl border border-neutral-200 text-xs overflow-x-auto text-neutral-700 leading-relaxed">{JSON.stringify(evidence.raw_response, null, 2)}</pre>
           </div>
         </div>
       </details>

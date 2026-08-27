@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
-import { getRun, updateRun } from '../../../../../../lib/models';
+import { getRun, updateRun, addEvent } from '../../../../../../lib/models';
 import { handleApproval } from '../../../../../../lib/engine';
 import { TrueForge } from '@truefoundry/trueforge-sdk';
+
+export const dynamic = 'force-dynamic';
 
 export async function POST(
   req: Request,
@@ -32,24 +34,20 @@ export async function POST(
 
     updateRun(id, { status: 'RUNNING' });
 
-    // We must lazily consume the rest of the stream to get the turn.done
-    // (This is a simplified design: the API route kicks off a dangling promise to finish it)
-    import('../../../../../../lib/engine').then(({ runAuditSession }) => {
-      // Actually we don't call runAuditSession again, we just consume the stream
-      const { addEvent, getRun, updateRun } = require('../../../../../../lib/models');
-      
-      async function consumeStream(currentStream: any) {
-        for await (const { data: event } of currentStream.withMetadata()) {
+    // Consume remaining stream events in the background
+    (async () => {
+      try {
+        for await (const { data: event } of nextStream.withMetadata()) {
           addEvent(id, event.type, event);
         }
         const r = getRun(id);
         if (r?.status === 'RUNNING') {
           updateRun(id, { status: 'COMPLETED' });
         }
+      } catch (e) {
+        console.error('Stream consumption error:', e);
       }
-      
-      consumeStream(nextStream).catch(console.error);
-    });
+    })();
 
     return NextResponse.json({ success: true });
   } catch (err: any) {
