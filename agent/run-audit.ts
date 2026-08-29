@@ -35,13 +35,30 @@ Repo: ${REPO_URL}
 Directory: ${SERVER_DIR}
 Fixture: SQLite database at fixture.db
 
+A note on this sandbox: each command you run may start in a fresh shell with no
+memory of a previous "cd". Do NOT rely on a earlier "cd" persisting. Every command
+below must be run using its full path or prefixed with "cd /home/trueforge/attest-runner && ...".
+
 Tasks:
+0. Before anything else, confirm Node.js and npx are available in this sandbox:
+   Command: node --version && npx --version
+   If either command is not found, install Node.js first using whatever package manager
+   is available (e.g. apt-get install -y nodejs npm, or curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs),
+   then re-run the version check to confirm before proceeding.
+
+0.5. The scripts referenced below (sandbox-scripts/discover-tools.ts, sandbox-scripts/test-tool.ts)
+   are NOT already present in this sandbox — they live in the Attest project's own repo, which must
+   be cloned first, separately from the target server being audited.
+   Command: git clone "${REPO_URL}" /home/trueforge/attest-runner
+   All commands in steps 1-4 below must run with /home/trueforge/attest-runner as their working
+   directory (e.g. "cd /home/trueforge/attest-runner && npx tsx sandbox-scripts/discover-tools.ts ...").
+
 1. Run sandbox-scripts/discover-tools.ts to clone the repo, prepare the fixture, start the server, and list tools.
-   Command: npx tsx sandbox-scripts/discover-tools.ts "${REPO_URL}" "${SERVER_DIR}" 3055
+   Command: cd /home/trueforge/attest-runner && npx tsx sandbox-scripts/discover-tools.ts "${REPO_URL}" "${SERVER_DIR}" 3055
 
 2. For EACH tool discovered, spawn a separate Subagent. Assign each subagent a unique port (e.g., 3056, 3057, 3058) and give it these instructions:
    - Run sandbox-scripts/test-tool.ts with your assigned port to safely test the tool against its own isolated fixture copy.
-   - Example Command: npx tsx sandbox-scripts/test-tool.ts .sandbox-tmp/repo/${SERVER_DIR} <tool_name> .sandbox-tmp/repo/${SERVER_DIR}/fixture.db <port> '<test_input_json>'
+   - Example Command: cd /home/trueforge/attest-runner && npx tsx sandbox-scripts/test-tool.ts .sandbox-tmp/repo/${SERVER_DIR} <tool_name> .sandbox-tmp/repo/${SERVER_DIR}/fixture.db <port> '<test_input_json>'
    - Return the Evidence JSON to the root agent.
 
 3. After all subagents complete, compile their Evidence.

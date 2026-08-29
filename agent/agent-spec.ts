@@ -6,15 +6,14 @@
  *
  * Matches §7 of the build plan exactly:
  * - Uses agents.create (programmatic, not chat UI)
- * - Attaches GitHub MCP server (read-only tools only)
  * - Enables sandbox + dynamic subagents
  * - Explicitly gates publish_certification via require_approval_for_tools
  *
  * Prerequisites:
  * - TrueForge running locally: npx @truefoundry/trueforge@latest
  * - Model configured in TrueForge Settings → Models
- * - GitHub connector added in TrueForge Settings → Connectors
- * - Sandbox provider (Daytona) configured in Settings → Sandbox providers
+ * - Sandbox provider (Daytona, or the built-in local fallback on macOS/Linux)
+ *   configured in Settings → Sandbox providers
  */
 
 import { TrueForge } from '@truefoundry/trueforge-sdk';
@@ -50,15 +49,23 @@ export async function registerAuditorAgent(client: TrueForge): Promise<void> {
   await client.agents.create({
     name: 'attest-auditor',
     manifest: {
-      // Model: use Claude Sonnet for the right balance of reasoning + speed
-      model: { name: 'anthropic/claude-sonnet-4-6' },
+      // TEMPORARY: swapped to the free-tier Gemini model to unblock local
+      // E2E testing while the Anthropic account has no API credit. Swap
+      // back to 'anthropic/claude-sonnet-4-6' before the real demo/recording.
+      // Note: TrueForge slugifies registered model names (dots -> dashes),
+      // so this must match the configured `name`, not the raw model_id
+      // ("gemini-3.6-flash") — confirmed via GET /api/v1/settings/model-providers.
+      model: { name: 'google-gemini/gemini-3-6-flash' },
 
       // Instructions: imported from prompts/ for easy iteration
       instructions: AUDITOR_INSTRUCTIONS,
 
-      // MCP servers: GitHub (read-only) for repo cloning + internal for publishing
+      // MCP servers: internal for publishing.
+      // Note: repo cloning is done via plain `git clone` inside the sandbox
+      // (sandbox-scripts/discover-tools.ts), not via a GitHub MCP connector,
+      // so no `github` entry is declared here — it would require a connector
+      // that's never configured and nothing in the execution path calls it.
       mcpServers: [
-        { name: 'github', enableTools: ['@read-only'] },
         { name: 'attest-internal', requireApprovalForTools: ['publish_certification'] },
       ],
 
