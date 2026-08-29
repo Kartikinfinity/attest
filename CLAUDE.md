@@ -28,10 +28,11 @@ UI (Next.js) → API routes (apps/web) → TrueForge SDK → attest-auditor agen
 | Path | Contents |
 |---|---|
 | `apps/web/` | Next.js UI + API routes + SQLite store (`lib/db.ts`, `lib/models.ts`, `lib/engine.ts` runs the audit session) |
-| `agent/` | Agent registration (`agent-spec.ts`), prompts (`prompts/auditor.ts` — the real instructions), CLI runners (`run-audit.ts`, `smoke-test.ts`) |
+| `agent/` | Agent registration (`agent-spec.ts`), CLI runners (`run-audit.ts`, `smoke-test.ts`) |
 | `sandbox-scripts/` | Scripts the agent runs *inside* the sandbox: `discover-tools.ts` (clone/install/start/list), `test-tool.ts` (one tool, isolated fixture+port, diff) |
-| `demo-servers/` | `invoice-server` (built, has the planted mismatch), `attest-internal` (built, hosts `publish_certification`). `notes-server`/`legacy-server` are **not built yet** |
+| `demo-servers/` | `invoice-server` (built, has the planted mismatch), `notes-server` (built, the clean-pass case), `attest-internal` (built, hosts `publish_certification`). `legacy-server` is **not built yet** |
 | `packages/verdict-engine/` | Pure, deterministic verdict logic. No network/LLM deps. This is what judges scrutinize first |
+| `packages/agent-prompts/` | `AUDITOR_INSTRUCTIONS`/`TOOL_TESTER_INSTRUCTIONS` — the real, single-source-of-truth agent instructions, imported by both `agent/agent-spec.ts` (CLI path) and `apps/web/lib/engine.ts` (web path) |
 | `tests/` | Integration tests (real server spin-up) |
 | `docs/` | `architecture.md` (trimmed spec pointer), `AUDIT_REPORT.md` (current gaps/bugs) |
 
@@ -79,7 +80,7 @@ npx tsx agent/run-audit.ts           # CLI vertical-slice runner (terminal, inte
 
 - TypeScript everywhere, one language end to end.
 - `verdict-engine` stays pure functions over data — zero I/O, zero SDK imports. If you're tempted to add a network call or LLM call in there, stop.
-- Keep prompts/instructions in `agent/prompts/`, not inlined in route handlers — there must be exactly **one** source of truth for `attest-auditor`'s instructions (see Known Issue #1 below).
+- Keep prompts/instructions in `packages/agent-prompts/`, not inlined in route handlers or forked per-consumer — there must be exactly **one** source of truth for `attest-auditor`'s instructions, imported via `@attest/agent-prompts` by both the CLI path and the web app path.
 - Bounded changes: per the build plan's own discipline, a single change/PR should touch ~3 files or fewer / one phase at a time — this codebase was built that way and reviews (Qodo) expect it.
 - Plain structured `console.log(JSON.stringify(...))` for logging — no logging framework needed at this stage.
 
@@ -95,7 +96,7 @@ npx tsx agent/run-audit.ts           # CLI vertical-slice runner (terminal, inte
 - The verdict logic in `packages/verdict-engine/src/derive-verdict.ts` — it's the core, judge-scrutinized claim of the product. Any change needs a corresponding test update and a clear rationale.
 - The approval gating (`requireApprovalForTools: ['publish_certification']` in `agent/agent-spec.ts`) — never relax this or make it implicit.
 - The fixture-isolation strategy in `sandbox-scripts/test-tool.ts` (copy-per-port) — this is what makes parallel subagent testing safe; don't "simplify" it to a shared fixture.
-- The safety rules in `agent/prompts/auditor.ts` (`AUDITOR_INSTRUCTIONS`) — treat as the canonical agent instructions; don't fork a second, weaker copy elsewhere (see Known Issue #1).
+- The safety rules in `packages/agent-prompts/src/index.js` (`AUDITOR_INSTRUCTIONS`) — treat as the canonical agent instructions; don't fork a second, weaker copy elsewhere.
 - `demo-servers/invoice-server`'s planted mismatch in `get_invoice` — it must keep declaring `readOnlyHint: true` while writing to `audit_log`; that's the entire demo.
 
 ## Submission-critical functionality

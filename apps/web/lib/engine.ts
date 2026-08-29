@@ -2,7 +2,7 @@ import { TrueForge } from '@truefoundry/trueforge-sdk';
 import { updateRun, addEvent, saveToolResult, saveEvidence, getRun, getEvents } from './models';
 // @ts-ignore
 import { deriveVerdict } from '@attest/verdict-engine';
-import { AUDITOR_INSTRUCTIONS } from '../../../agent/prompts/auditor.js';
+import { AUDITOR_INSTRUCTIONS } from '@attest/agent-prompts';
 
 export async function registerAuditorAgent(client: TrueForge): Promise<void> {
   await client.settings.mcpServers.createOrUpdate({
@@ -20,7 +20,7 @@ export async function registerAuditorAgent(client: TrueForge): Promise<void> {
       manifest: {
         model: { name: 'anthropic/claude-sonnet-4-6' },
         // Single source of truth for the agent's instructions -- see
-        // agent/prompts/auditor.ts. Do not fork a second copy here.
+        // packages/agent-prompts/src/index.js. Do not fork a second copy here.
         instructions: AUDITOR_INSTRUCTIONS,
         // Note: no `github` MCP server entry -- cloning is a plain `git
         // clone` inside the sandbox (sandbox-scripts/discover-tools.ts),

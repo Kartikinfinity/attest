@@ -1,8 +1,15 @@
 /**
  * Attest Auditor — Agent Prompt (instruction text)
  *
- * Kept separate from the agent-spec code so it's easy to iterate
- * on the prompt without touching the SDK wiring.
+ * The single source of truth for attest-auditor's instructions, shared by
+ * both the CLI path (agent/agent-spec.ts) and the web app path
+ * (apps/web/lib/engine.ts). Plain JS with zero build step on purpose --
+ * this used to be a raw relative import reaching from apps/web/lib/
+ * outside the app directory into agent/prompts/, which needed Next's
+ * experimental.externalDir flag and turned out to be unreliable in dev
+ * (WSL running against a Windows-mounted path). Resolving it as a normal
+ * workspace package via node_modules (like @attest/verdict-engine already
+ * does) sidesteps that entirely.
  *
  * Key constraints baked into the prompt:
  * - Never test against live/production systems
