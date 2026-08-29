@@ -18,7 +18,16 @@ export async function registerAuditorAgent(client: TrueForge): Promise<void> {
     await client.agents.create({
       name: 'attest-auditor',
       manifest: {
-        model: { name: 'anthropic/claude-sonnet-4-6' },
+        // TEMPORARY: swapped to the free-tier Gemini model to unblock
+        // local E2E testing while the Anthropic account has no API
+        // credit -- matches the same swap in agent/agent-spec.ts. Swap
+        // back to 'anthropic/claude-sonnet-4-6' once that's funded, and
+        // delete the currently-registered attest-auditor agent afterward
+        // so the next run re-registers under the restored model
+        // (registerAuditorAgent skips creation entirely when an agent
+        // with this name already exists -- it won't pick up this change
+        // on its own).
+        model: { name: 'google-gemini/gemini-3-6-flash' },
         // Single source of truth for the agent's instructions -- see
         // packages/agent-prompts/src/index.js. Do not fork a second copy here.
         instructions: AUDITOR_INSTRUCTIONS,
