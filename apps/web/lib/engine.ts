@@ -2,7 +2,8 @@ import { TrueForge } from '@truefoundry/trueforge-sdk';
 import { updateRun, addEvent, saveToolResult, saveEvidence, getRun, getEvents } from './models';
 // @ts-ignore
 import { deriveVerdict } from '@attest/verdict-engine';
-import { AUDITOR_INSTRUCTIONS } from '@attest/agent-prompts';
+import { buildAuditorManifest } from '@attest/agent-prompts';
+import { classifyFailure } from './failure-classification';
 
 export async function registerAuditorAgent(client: TrueForge): Promise<void> {
   await client.settings.mcpServers.createOrUpdate({
@@ -17,32 +18,16 @@ export async function registerAuditorAgent(client: TrueForge): Promise<void> {
   try {
     await client.agents.create({
       name: 'attest-auditor',
-      manifest: {
-        // TEMPORARY: swapped to the free-tier Gemini model to unblock
-        // local E2E testing while the Anthropic account has no API
-        // credit -- matches the same swap in agent/agent-spec.ts. Swap
-        // back to 'anthropic/claude-sonnet-4-6' once that's funded, and
-        // delete the currently-registered attest-auditor agent afterward
-        // so the next run re-registers under the restored model
-        // (registerAuditorAgent skips creation entirely when an agent
-        // with this name already exists -- it won't pick up this change
-        // on its own).
-        model: { name: 'google-gemini/gemini-3-6-flash' },
-        // Single source of truth for the agent's instructions -- see
-        // packages/agent-prompts/src/index.js. Do not fork a second copy here.
-        instructions: AUDITOR_INSTRUCTIONS,
-        // Note: no `github` MCP server entry -- cloning is a plain `git
-        // clone` inside the sandbox (sandbox-scripts/discover-tools.ts),
-        // not an MCP tool call, and an unconfigured entry here blocks
-        // registration entirely with a 422.
-        mcpServers: [
-          { name: 'attest-internal', requireApprovalForTools: ['publish_certification'] },
-        ],
-        config: {
-          sandbox: { enabled: true },
-          dynamicSubAgents: { enabled: true },
-        },
-      }
+      // Manifest comes from the single shared builder in
+      // packages/agent-prompts -- see buildAuditorManifest() there. This
+      // used to be a second, independently-drifting copy of the manifest
+      // (previously the actual source of the D.1 instructions-drift bug).
+      // Model name and iteration limit are env-var-driven
+      // (ATTEST_MODEL_NAME / ATTEST_ITERATION_LIMIT), so if you're
+      // running on the free-tier Gemini model while Anthropic billing is
+      // pending, set ATTEST_MODEL_NAME=google-gemini/gemini-3-6-flash in
+      // .env rather than editing code -- see .env.example.
+      manifest: buildAuditorManifest(),
     });
   } catch (err: any) {
     // agents.create() throws the SDK's ConflictError (HTTP 409) when
@@ -206,8 +191,12 @@ Tasks:
    - Example Command: cd /home/trueforge/attest-runner && npx tsx sandbox-scripts/test-tool.ts .sandbox-tmp/repo/${serverDir} <tool_name> .sandbox-tmp/repo/${serverDir}/fixture.db <port> '<test_input_json>'
    - Return the Evidence JSON to the root agent.
 
-3. After all subagents complete, compile their Evidence into a JSON array called \`evidenceArray\`.
-   For each evidence, ensure you pair it with the corresponding \`ToolBehaviorClaim\` (from the discover-tools.ts output).
+2.5. Optional -- only if genuinely applicable: look at the tool names/schemas from step 1. If several tools clearly share one entity (e.g. a tool that creates something alongside tools that read/update/delete that same kind of thing), run ONE additional workflow-chain test using sandbox-scripts/test-workflow.ts on its own fresh fixture copy and port. This calls the related tools in a realistic sequence against ONE shared fixture copy (not isolated per-call), which can reveal a mismatch that only shows up after a prior step.
+   Command: cd /home/trueforge/attest-runner && npx tsx sandbox-scripts/test-workflow.ts .sandbox-tmp/repo/${serverDir} .sandbox-tmp/repo/${serverDir}/fixture.db <port> '[{"toolName":"...","args":{...}}, {"toolName":"...","args":{...}}]'
+   This prints a WORKFLOW EVIDENCE JSON array -- one Evidence object per step, in the exact same shape test-tool.ts produces. Skip this step entirely if no meaningful multi-tool relationship exists for this server -- it supplements the per-tool tests in step 2, it never replaces them.
+
+3. After all subagents (and the workflow-chain test, if you ran one) complete, compile ALL of their Evidence into a JSON array called \`evidenceArray\`.
+   For each evidence entry, ensure you pair it with the corresponding \`ToolBehaviorClaim\` (from the discover-tools.ts output), matched by toolName. A tool tested both in isolation and as part of a chain will legitimately produce two separate (claim, evidence) pairs -- include both.
 
 4. Finally, call the \`publish_certification\` tool (from the attest-internal MCP server) with a JSON string containing \`{ evidence: evidenceArray, claims: claimsArray }\`.`;
 
@@ -239,8 +228,9 @@ Tasks:
           // whether the turn actually succeeded, which is misleading for
           // a tool whose whole premise is trustworthy status reporting.
           if (event.state?.status === 'error') {
-            updateRun(runId, { status: 'FAILED' });
-            addEvent(runId, 'error', { message: event.state?.message ?? 'Turn ended with an error' });
+            const message = event.state?.message ?? 'Turn ended with an error';
+            updateRun(runId, { status: 'FAILED', failure_category: classifyFailure(message) });
+            addEvent(runId, 'error', { message });
           }
         }
       }
@@ -255,7 +245,7 @@ Tasks:
 
   } catch (err: any) {
     console.error("Audit session failed:", err);
-    updateRun(runId, { status: 'FAILED' });
+    updateRun(runId, { status: 'FAILED', failure_category: classifyFailure(err.message) });
     addEvent(runId, 'error', { message: err.message });
   }
 }

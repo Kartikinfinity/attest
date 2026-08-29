@@ -17,7 +17,7 @@
  */
 
 import { TrueForge } from '@truefoundry/trueforge-sdk';
-import { AUDITOR_INSTRUCTIONS } from '@attest/agent-prompts';
+import { buildAuditorManifest } from '@attest/agent-prompts';
 
 /**
  * Create a TrueForge client pointed at the local instance.
@@ -48,33 +48,14 @@ export async function registerAuditorAgent(client: TrueForge): Promise<void> {
 
   await client.agents.create({
     name: 'attest-auditor',
-    manifest: {
-      // TEMPORARY: swapped to the free-tier Gemini model to unblock local
-      // E2E testing while the Anthropic account has no API credit. Swap
-      // back to 'anthropic/claude-sonnet-4-6' before the real demo/recording.
-      // Note: TrueForge slugifies registered model names (dots -> dashes),
-      // so this must match the configured `name`, not the raw model_id
-      // ("gemini-3.6-flash") — confirmed via GET /api/v1/settings/model-providers.
-      model: { name: 'google-gemini/gemini-3-6-flash' },
-
-      // Instructions: imported from prompts/ for easy iteration
-      instructions: AUDITOR_INSTRUCTIONS,
-
-      // MCP servers: internal for publishing.
-      // Note: repo cloning is done via plain `git clone` inside the sandbox
-      // (sandbox-scripts/discover-tools.ts), not via a GitHub MCP connector,
-      // so no `github` entry is declared here — it would require a connector
-      // that's never configured and nothing in the execution path calls it.
-      mcpServers: [
-        { name: 'attest-internal', requireApprovalForTools: ['publish_certification'] },
-      ],
-
-      // Config: enable sandbox isolation + parallel subagent fan-out
-      config: {
-        sandbox: { enabled: true },
-        dynamicSubAgents: { enabled: true },
-      },
-    },
+    // Manifest (model, instructions, MCP servers, sandbox/subagent/iteration
+    // config) comes from the single shared builder in packages/agent-prompts
+    // -- see buildAuditorManifest() there for why. Model name and iteration
+    // limit are read from ATTEST_MODEL_NAME / ATTEST_ITERATION_LIMIT env
+    // vars, so switching providers (e.g. to a local DGX Spark endpoint
+    // registered in TrueForge as a `custom` model provider, or back to
+    // Anthropic once billing is set up) never needs a code change here.
+    manifest: buildAuditorManifest(),
   });
 }
 

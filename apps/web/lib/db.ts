@@ -23,6 +23,7 @@ db.exec(`
     status TEXT NOT NULL,
     session_id TEXT,
     overall_verdict TEXT,
+    failure_category TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
@@ -60,5 +61,16 @@ db.exec(`
     FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE CASCADE
   );
 `);
+
+// Migration for existing databases created before failure_category existed
+// (CREATE TABLE IF NOT EXISTS above only applies to a brand-new db file --
+// it does not retroactively add columns to an already-created runs table,
+// and this project already has real run history predating this column).
+// SQLite has no "ADD COLUMN IF NOT EXISTS"; guard with a try/catch instead.
+try {
+  db.exec('ALTER TABLE runs ADD COLUMN failure_category TEXT');
+} catch {
+  // Column already exists -- expected on every run after the first.
+}
 
 export { db };

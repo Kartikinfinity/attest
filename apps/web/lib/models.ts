@@ -7,6 +7,8 @@ export interface Run {
   status: 'PENDING' | 'RUNNING' | 'AWAITING_APPROVAL' | 'COMPLETED' | 'FAILED';
   session_id: string | null;
   overall_verdict: string | null;
+  /** Set only when status = 'FAILED' -- see lib/failure-classification.ts. */
+  failure_category: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -5,6 +5,7 @@ export default defineConfig({
     globals: true,
     include: [
       'packages/**/src/**/*.test.ts',
+      'apps/web/lib/**/*.test.ts',
       'tests/**/*.test.ts',
     ],
     // Integration tests that start servers need longer timeouts
