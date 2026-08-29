@@ -1,8 +1,8 @@
-import { TrueForge, ConflictError } from '@truefoundry/trueforge-sdk';
+import { TrueForge } from '@truefoundry/trueforge-sdk';
 import { updateRun, addEvent, saveToolResult, saveEvidence, getRun, getEvents } from './models';
 // @ts-ignore
 import { deriveVerdict } from '@attest/verdict-engine';
-import { AUDITOR_INSTRUCTIONS } from '../../../agent/prompts/auditor.js';
+import { AUDITOR_INSTRUCTIONS } from '@attest/agent-prompts';
 
 export async function registerAuditorAgent(client: TrueForge): Promise<void> {
   await client.settings.mcpServers.createOrUpdate({
@@ -18,9 +18,18 @@ export async function registerAuditorAgent(client: TrueForge): Promise<void> {
     await client.agents.create({
       name: 'attest-auditor',
       manifest: {
-        model: { name: 'anthropic/claude-sonnet-4-6' },
+        // TEMPORARY: swapped to the free-tier Gemini model to unblock
+        // local E2E testing while the Anthropic account has no API
+        // credit -- matches the same swap in agent/agent-spec.ts. Swap
+        // back to 'anthropic/claude-sonnet-4-6' once that's funded, and
+        // delete the currently-registered attest-auditor agent afterward
+        // so the next run re-registers under the restored model
+        // (registerAuditorAgent skips creation entirely when an agent
+        // with this name already exists -- it won't pick up this change
+        // on its own).
+        model: { name: 'google-gemini/gemini-3-6-flash' },
         // Single source of truth for the agent's instructions -- see
-        // agent/prompts/auditor.ts. Do not fork a second copy here.
+        // packages/agent-prompts/src/index.js. Do not fork a second copy here.
         instructions: AUDITOR_INSTRUCTIONS,
         // Note: no `github` MCP server entry -- cloning is a plain `git
         // clone` inside the sandbox (sandbox-scripts/discover-tools.ts),
@@ -35,11 +44,18 @@ export async function registerAuditorAgent(client: TrueForge): Promise<void> {
         },
       }
     });
-  } catch (err) {
-    if (err instanceof ConflictError) {
-      // attest-auditor was already registered by a previous audit run in
-      // this TrueForge instance's lifetime. agents.create fails on a
-      // duplicate name -- that's expected here on the 2nd+ run, not a bug.
+  } catch (err: any) {
+    // agents.create() throws the SDK's ConflictError (HTTP 409) when
+    // attest-auditor was already registered by a previous audit run in
+    // this TrueForge instance's lifetime -- that's expected on the 2nd+
+    // run, not a bug. Checked via statusCode rather than `instanceof
+    // ConflictError`: the SDK's ESM build (what Next.js's webpack
+    // resolves, vs. the CJS build Node/tsx resolves on the CLI path)
+    // doesn't re-export that class under this package version, which
+    // broke the web app's build entirely -- statusCode is a plain
+    // property on the shared TrueForgeError base class, so it's reliable
+    // regardless of which build got resolved.
+    if (err?.statusCode === 409) {
       return;
     }
     throw err;
@@ -214,6 +230,18 @@ Tasks:
           updateRun(runId, { status: 'AWAITING_APPROVAL' });
           return;
         } else if (event.type === 'turn.done') {
+          // A provider/model-level failure (e.g. a rate limit or billing
+          // error from the underlying LLM) surfaces as DATA inside this
+          // event (event.state.status === 'error'), not as a thrown JS
+          // exception -- the stream just ends normally either way. Without
+          // this check, the run falls through to the unconditional
+          // "still RUNNING -> COMPLETED" update below regardless of
+          // whether the turn actually succeeded, which is misleading for
+          // a tool whose whole premise is trustworthy status reporting.
+          if (event.state?.status === 'error') {
+            updateRun(runId, { status: 'FAILED' });
+            addEvent(runId, 'error', { message: event.state?.message ?? 'Turn ended with an error' });
+          }
         }
       }
     }

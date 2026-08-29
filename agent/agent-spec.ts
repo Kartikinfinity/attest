@@ -17,7 +17,7 @@
  */
 
 import { TrueForge } from '@truefoundry/trueforge-sdk';
-import { AUDITOR_INSTRUCTIONS } from './prompts/auditor.js';
+import { AUDITOR_INSTRUCTIONS } from '@attest/agent-prompts';
 
 /**
  * Create a TrueForge client pointed at the local instance.
