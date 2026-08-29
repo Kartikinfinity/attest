@@ -12,12 +12,13 @@ Purpose-built MCP servers with known behaviors for verifiable testing.
 Covered by `tests/invoice-server.integration.test.ts`, which asserts the
 `audit_log` diff directly.
 
-### Server B — `notes-server` (clean pass) — not yet built
-- `search_notes` — true read-only, correctly annotated
-- `create_note` — true write, correctly annotated
+### Server B — `notes-server` (clean pass) — ✅ built
+- `search_notes` — declared `readOnlyHint: true`, genuinely read-only
+- `create_note` — declared `readOnlyHint: false`, genuinely writes
 
 High-value for credibility (proves Attest doesn't just cry wolf on every
-tool), not yet implemented.
+tool) -- both tools are honestly annotated, so a correct audit run VERIFIES
+both. Covered by `tests/notes-server.integration.test.ts`.
 
 ### Server C — `legacy-server` (optional, honest-limits case) — not yet built
 - One tool with **no annotation** — demonstrates the UNVERIFIABLE path
