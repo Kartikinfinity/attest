@@ -221,6 +221,18 @@ Tasks:
           updateRun(runId, { status: 'AWAITING_APPROVAL' });
           return;
         } else if (event.type === 'turn.done') {
+          // A provider/model-level failure (e.g. a rate limit or billing
+          // error from the underlying LLM) surfaces as DATA inside this
+          // event (event.state.status === 'error'), not as a thrown JS
+          // exception -- the stream just ends normally either way. Without
+          // this check, the run falls through to the unconditional
+          // "still RUNNING -> COMPLETED" update below regardless of
+          // whether the turn actually succeeded, which is misleading for
+          // a tool whose whole premise is trustworthy status reporting.
+          if (event.state?.status === 'error') {
+            updateRun(runId, { status: 'FAILED' });
+            addEvent(runId, 'error', { message: event.state?.message ?? 'Turn ended with an error' });
+          }
         }
       }
     }
