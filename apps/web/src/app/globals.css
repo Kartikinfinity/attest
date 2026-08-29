@@ -7,8 +7,27 @@
   --font-mono: var(--font-jetbrains), "SF Mono", "Fira Code", ui-monospace, monospace;
 }
 
+/*
+ * Attest design tokens.
+ *
+ * A restrained, layered-surface system rather than flat white cards on a
+ * flat white page -- canvas < surface < surface-2 gives hierarchy without
+ * relying on heavy shadows. Status colors are semantic (success/warning/
+ * danger/info), never decorative.
+ */
+:root {
+  --surface-canvas: #fafafa;
+  --surface-1: #ffffff;
+  --surface-2: #f5f5f5;
+  --border-subtle: #e5e5e5;
+  --border-default: #d4d4d4;
+  --text-primary: #0a0a0a;
+  --text-secondary: #525252;
+  --text-tertiary: #a3a3a3;
+}
+
 body {
-  background: var(--color-background);
+  background: var(--surface-canvas);
   color: var(--color-foreground);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
@@ -16,7 +35,9 @@ body {
 }
 
 *:focus-visible {
-  outline: none;
+  outline: 2px solid #171717;
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 html {
@@ -25,4 +46,17 @@ html {
 
 ::selection {
   background: #dbeafe;
+}
+
+/* Respect reduced-motion preferences globally -- interactions stay
+   instant/functional, just without the animated transition. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
