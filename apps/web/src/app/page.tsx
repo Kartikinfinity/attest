@@ -63,22 +63,27 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-neutral-50 text-neutral-900">
+    <div className="min-h-screen bg-canvas text-neutral-900">
       <AppHeader />
 
-      <main className="mx-auto max-w-6xl px-4 sm:px-6 py-10 sm:py-16">
-        {/* Hero */}
-        <div className="mb-10 sm:mb-14 max-w-2xl">
-          <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-neutral-900 mb-3">Audit Workspace</h2>
-          <p className="text-neutral-500 text-base sm:text-lg leading-relaxed">
-            Attest runs your MCP server&apos;s tools inside an isolated sandbox and checks whether what they actually
-            do matches what they declare — <span className="text-neutral-700 font-medium">readOnlyHint</span>,{' '}
-            <span className="text-neutral-700 font-medium">destructiveHint</span>, and the rest — backed by observed
-            state changes, not by reading source code.
-          </p>
+      <main>
+        <div className="bg-dot-grid border-b border-[var(--border-subtle)]">
+          <div className="mx-auto max-w-6xl px-4 sm:px-6 pt-12 sm:pt-16 pb-10 sm:pb-14">
+            <p className="text-xs font-bold tracking-[0.2em] text-accent uppercase mb-3">MCP Behavioral Certification</p>
+            <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-neutral-900 mb-4 max-w-2xl">
+              Prove what your tools actually do.
+            </h2>
+            <p className="text-neutral-600 text-base sm:text-lg leading-relaxed max-w-2xl">
+              Attest runs your MCP server&apos;s tools inside an isolated sandbox and checks whether what they actually
+              do matches what they declare — <span className="text-neutral-900 font-semibold">readOnlyHint</span>,{' '}
+              <span className="text-neutral-900 font-semibold">destructiveHint</span>, and the rest — backed by observed
+              state changes, never by reading source code or trusting a model&apos;s judgment.
+            </p>
+          </div>
         </div>
 
-        <div className="grid lg:grid-cols-12 gap-6 lg:gap-10">
+        <div className="mx-auto max-w-6xl px-4 sm:px-6 py-10 sm:py-14">
+          <div className="grid lg:grid-cols-12 gap-6 lg:gap-10">
           {/* New Audit form */}
           <div className="lg:col-span-5">
             <div className="bg-white rounded-2xl border border-neutral-200 p-6 sm:p-8 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
@@ -95,7 +100,7 @@ export default function Home() {
                     type="url"
                     value={repoUrl}
                     onChange={e => setRepoUrl(e.target.value)}
-                    className="w-full rounded-lg border border-neutral-300 p-2.5 text-sm font-mono focus:ring-2 focus:ring-neutral-900 focus:border-neutral-900 focus:outline-none transition-all placeholder:text-neutral-400"
+                    className="w-full min-h-[44px] rounded-lg border border-neutral-300 px-3 py-2.5 text-sm font-mono focus:ring-2 focus:ring-accent focus:border-accent focus:outline-none transition-all placeholder:text-neutral-400"
                     placeholder="https://github.com/..."
                     required
                   />
@@ -109,18 +114,20 @@ export default function Home() {
                     type="text"
                     value={serverDir}
                     onChange={e => setServerDir(e.target.value)}
-                    className="w-full rounded-lg border border-neutral-300 p-2.5 text-sm font-mono focus:ring-2 focus:ring-neutral-900 focus:border-neutral-900 focus:outline-none transition-all placeholder:text-neutral-400"
+                    className="w-full min-h-[44px] rounded-lg border border-neutral-300 px-3 py-2.5 text-sm font-mono focus:ring-2 focus:ring-accent focus:border-accent focus:outline-none transition-all placeholder:text-neutral-400"
                     placeholder="e.g. packages/my-server"
                     required
                   />
                 </div>
 
-                <div className="rounded-xl bg-neutral-50 border border-neutral-200 p-4">
+                <div className="rounded-xl bg-surface-2 border border-[var(--border-subtle)] p-4">
                   <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-3">What Attest will verify</p>
-                  <ul className="space-y-2">
+                  <ul className="space-y-2.5">
                     {AUDIT_CHECKS.map(check => (
                       <li key={check.label} className="flex items-center gap-2.5 text-sm text-neutral-700">
-                        <check.icon className="h-4 w-4 text-neutral-400 flex-shrink-0" aria-hidden="true" />
+                        <span className="bg-accent-soft p-1 rounded-md flex-shrink-0">
+                          <check.icon className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
+                        </span>
                         {check.label}
                       </li>
                     ))}
@@ -130,7 +137,7 @@ export default function Home() {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full flex items-center justify-center gap-2 bg-neutral-900 hover:bg-neutral-800 text-white py-3 rounded-lg font-semibold text-sm transition-all shadow-sm active:scale-[0.98] disabled:opacity-70 disabled:pointer-events-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-neutral-900"
+                  className="w-full min-h-[44px] flex items-center justify-center gap-2 bg-accent hover:bg-accent-hover text-white py-3 rounded-lg font-semibold text-sm transition-all shadow-sm active:scale-[0.98] disabled:opacity-70 disabled:pointer-events-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-accent"
                 >
                   {loading ? (
                     <>
@@ -176,7 +183,7 @@ export default function Home() {
                     <button
                       key={run.id}
                       onClick={() => router.push('/runs/' + run.id)}
-                      className="w-full text-left bg-white rounded-xl border border-neutral-200 p-5 shadow-sm hover:shadow-md hover:border-neutral-300 transition-all group flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                      className="w-full text-left bg-white rounded-xl border border-neutral-200 p-5 shadow-sm hover:shadow-md hover:border-accent/40 transition-all group flex flex-col sm:flex-row sm:items-center justify-between gap-3 focus-visible:ring-2 focus-visible:ring-accent"
                     >
                       <div className="min-w-0">
                         <div className="flex items-center gap-3 mb-1.5 flex-wrap">
@@ -206,7 +213,7 @@ export default function Home() {
                           <span>{formatTimestamp(run.created_at)}</span>
                         </div>
                       </div>
-                      <div className="text-sm font-semibold text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 flex-shrink-0">
+                      <div className="text-sm font-semibold text-accent opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 flex-shrink-0">
                         View Report <span className="text-lg leading-none" aria-hidden="true">&rarr;</span>
                       </div>
                     </button>
@@ -215,6 +222,7 @@ export default function Home() {
               </div>
             )}
           </div>
+        </div>
         </div>
       </main>
     </div>

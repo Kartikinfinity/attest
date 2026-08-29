@@ -63,7 +63,7 @@ const TONE_CLASSES: Record<StatusTone, { bg: string; text: string; ring: string;
   success: { bg: 'bg-emerald-50', text: 'text-emerald-700', ring: 'ring-emerald-600/20', dot: 'bg-emerald-500' },
   danger: { bg: 'bg-red-50', text: 'text-red-700', ring: 'ring-red-600/20', dot: 'bg-red-500' },
   warning: { bg: 'bg-amber-50', text: 'text-amber-800', ring: 'ring-amber-600/20', dot: 'bg-amber-500' },
-  info: { bg: 'bg-blue-50', text: 'text-blue-700', ring: 'ring-blue-600/20', dot: 'bg-blue-500' },
+  info: { bg: 'bg-accent-soft', text: 'text-accent-hover', ring: 'ring-accent/20', dot: 'bg-accent' },
   neutral: { bg: 'bg-neutral-100', text: 'text-neutral-600', ring: 'ring-neutral-500/15', dot: 'bg-neutral-400' },
 };
 

@@ -113,7 +113,7 @@ export default function RunPage({ params }: { params: Promise<{ id: string }> })
 
   if (loadError) {
     return (
-      <div className="min-h-screen bg-neutral-50 flex items-center justify-center p-6">
+      <div className="min-h-screen bg-canvas flex items-center justify-center p-6">
         <div className="text-center max-w-sm">
           <XCircle className="h-10 w-10 text-red-300 mx-auto mb-4" />
           <p className="text-neutral-900 font-semibold mb-1">Couldn&apos;t load this audit</p>
@@ -125,7 +125,7 @@ export default function RunPage({ params }: { params: Promise<{ id: string }> })
 
   if (!run) {
     return (
-      <div className="min-h-screen bg-neutral-50 p-6">
+      <div className="min-h-screen bg-canvas p-6">
         <div className="max-w-6xl mx-auto animate-pulse space-y-4">
           <div className="h-6 w-48 bg-neutral-200 rounded" />
           <div className="h-40 bg-neutral-100 rounded-2xl" />
@@ -144,10 +144,10 @@ export default function RunPage({ params }: { params: Promise<{ id: string }> })
   const warnings = results.filter(r => (r.verdict === 'MISMATCH' && r.severity !== 'HIGH') || r.verdict === 'UNVERIFIABLE').length;
 
   return (
-    <div className="min-h-screen bg-neutral-50 text-neutral-900">
+    <div className="min-h-screen bg-canvas text-neutral-900">
       <AppHeader>
-        <span className="text-neutral-300 hidden sm:inline">/</span>
-        <h1 className="font-mono font-semibold text-neutral-900 truncate hidden sm:inline">{repoName}</h1>
+        <span className="text-neutral-600 hidden sm:inline">/</span>
+        <h1 className="font-mono font-semibold text-neutral-100 truncate hidden sm:inline">{repoName}</h1>
         <StatusBadge status={display} />
       </AppHeader>
 
@@ -165,16 +165,16 @@ export default function RunPage({ params }: { params: Promise<{ id: string }> })
 
         {/* Approval gate */}
         {approvalRequired && (
-          <div className="bg-blue-50/80 border border-blue-200 rounded-2xl p-6 sm:p-8 shadow-sm">
+          <div className="bg-accent-soft/60 border border-accent/30 rounded-2xl p-6 sm:p-8 shadow-sm">
             <div className="flex items-start gap-5">
-              <ShieldAlert className="h-10 w-10 text-blue-600 mt-1 flex-shrink-0" aria-hidden="true" />
+              <ShieldAlert className="h-10 w-10 text-accent mt-1 flex-shrink-0" aria-hidden="true" />
               <div className="flex-1 min-w-0">
-                <h3 className="text-xl font-bold text-blue-950 mb-2">Certification Ready</h3>
-                <p className="text-blue-800/80 mb-6 font-medium">
+                <h3 className="text-xl font-bold text-neutral-900 mb-2">Certification Ready</h3>
+                <p className="text-neutral-600 mb-6 font-medium">
                   The agent wants to publish this audit result. Review the findings below before publishing.
                 </p>
 
-                <div className="bg-white rounded-xl border border-blue-100 p-5 mb-6 font-mono text-sm text-neutral-800 shadow-sm">
+                <div className="bg-white rounded-xl border border-accent/20 p-5 mb-6 font-mono text-sm text-neutral-800 shadow-sm">
                   <span className="text-neutral-400 block mb-2">{'// Action requested'}</span>
                   publish_certification
                 </div>
@@ -183,14 +183,14 @@ export default function RunPage({ params }: { params: Promise<{ id: string }> })
                   <button
                     onClick={() => handleApproval(true)}
                     disabled={approvalPending}
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg font-semibold text-sm transition-all shadow-sm active:scale-95 disabled:opacity-60 disabled:pointer-events-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-600"
+                    className="min-h-[44px] bg-accent hover:bg-accent-hover text-white px-6 py-2.5 rounded-lg font-semibold text-sm transition-all shadow-sm active:scale-95 disabled:opacity-60 disabled:pointer-events-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-accent"
                   >
                     Publish Report
                   </button>
                   <button
                     onClick={() => handleApproval(false)}
                     disabled={approvalPending}
-                    className="bg-white text-blue-900 hover:bg-blue-50 px-6 py-2.5 rounded-lg font-semibold text-sm border border-blue-200 transition-all shadow-sm active:scale-95 disabled:opacity-60 disabled:pointer-events-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-600"
+                    className="min-h-[44px] bg-white text-neutral-900 hover:bg-neutral-50 px-6 py-2.5 rounded-lg font-semibold text-sm border border-neutral-300 transition-all shadow-sm active:scale-95 disabled:opacity-60 disabled:pointer-events-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-accent"
                   >
                     Deny
                   </button>
@@ -249,7 +249,7 @@ export default function RunPage({ params }: { params: Promise<{ id: string }> })
             <button
               type="button"
               onClick={() => setShowRawLog(v => !v)}
-              className="w-full px-6 py-4 flex items-center justify-between text-left hover:bg-neutral-50 transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-neutral-900"
+              className="w-full px-6 py-4 flex items-center justify-between text-left hover:bg-neutral-50 transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
               aria-expanded={showRawLog}
             >
               <span className="text-sm font-semibold text-neutral-700">Raw execution log ({events.length} events)</span>
@@ -291,19 +291,21 @@ function OverviewCard({
 }) {
   const isTerminal = run.status === 'COMPLETED' || run.status === 'FAILED';
 
-  let headline: { icon: typeof ShieldCheck; text: string; tone: string } | null = null;
+  let headline: { icon: typeof ShieldCheck; text: string; tone: string; bar: string } | null = null;
   if (run.status === 'COMPLETED') {
     if (run.overall_verdict === 'CERTIFIED') {
-      headline = { icon: ShieldCheck, text: 'Certified', tone: 'text-emerald-600' };
+      headline = { icon: ShieldCheck, text: 'Certified', tone: 'text-emerald-600', bar: 'bg-emerald-500' };
     } else if (run.overall_verdict === 'FLAGGED') {
-      headline = { icon: ShieldX, text: 'Flagged', tone: 'text-red-600' };
+      headline = { icon: ShieldX, text: 'Flagged', tone: 'text-red-600', bar: 'bg-red-500' };
     } else if (run.overall_verdict === 'DENIED') {
-      headline = { icon: ShieldQuestion, text: 'Publish Denied', tone: 'text-neutral-500' };
+      headline = { icon: ShieldQuestion, text: 'Publish Denied', tone: 'text-neutral-500', bar: 'bg-neutral-400' };
     }
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-neutral-200 p-6 sm:p-8">
+    <div className="bg-white rounded-2xl border border-neutral-200 overflow-hidden">
+      {headline && <div className={`h-1 ${headline.bar}`} aria-hidden="true" />}
+      <div className="p-6 sm:p-8">
       {headline && (
         <div className="flex items-center gap-3 mb-6">
           <headline.icon className={`h-8 w-8 ${headline.tone}`} aria-hidden="true" />
@@ -351,6 +353,7 @@ function OverviewCard({
             <Metric label="Failed" value={failed} tone="text-red-600" />
           </div>
         )}
+      </div>
       </div>
     </div>
   );

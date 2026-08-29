@@ -61,7 +61,7 @@ export function ToolResultCard({ result, evidence }: { result: ToolResult; evide
       <button
         type="button"
         onClick={() => setExpanded(v => !v)}
-        className="w-full px-6 py-5 flex items-center justify-between gap-4 text-left hover:bg-neutral-50/60 transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-neutral-900"
+        className="w-full px-6 py-5 flex items-center justify-between gap-4 text-left hover:bg-neutral-50/60 transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
         aria-expanded={expanded}
       >
         <div className="min-w-0 flex-1">

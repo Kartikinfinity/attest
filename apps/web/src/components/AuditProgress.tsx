@@ -73,8 +73,8 @@ export function AuditProgress({
               )}
               {state === 'active' && (
                 <span className="relative flex h-5 w-5 items-center justify-center">
-                  <span className="animate-ping absolute inline-flex h-3 w-3 rounded-full bg-blue-400 opacity-75" />
-                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-blue-500" />
+                  <span className="animate-ping absolute inline-flex h-3 w-3 rounded-full bg-accent opacity-75" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-accent" />
                 </span>
               )}
               {state === 'pending' && (
@@ -92,7 +92,7 @@ export function AuditProgress({
                     : state === 'failed'
                       ? 'text-red-700'
                       : state === 'active'
-                        ? 'text-blue-700'
+                        ? 'text-accent'
                         : 'text-neutral-400')
                 }
               >
