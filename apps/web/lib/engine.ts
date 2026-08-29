@@ -1,4 +1,4 @@
-import { TrueForge, ConflictError } from '@truefoundry/trueforge-sdk';
+import { TrueForge } from '@truefoundry/trueforge-sdk';
 import { updateRun, addEvent, saveToolResult, saveEvidence, getRun, getEvents } from './models';
 // @ts-ignore
 import { deriveVerdict } from '@attest/verdict-engine';
@@ -35,11 +35,18 @@ export async function registerAuditorAgent(client: TrueForge): Promise<void> {
         },
       }
     });
-  } catch (err) {
-    if (err instanceof ConflictError) {
-      // attest-auditor was already registered by a previous audit run in
-      // this TrueForge instance's lifetime. agents.create fails on a
-      // duplicate name -- that's expected here on the 2nd+ run, not a bug.
+  } catch (err: any) {
+    // agents.create() throws the SDK's ConflictError (HTTP 409) when
+    // attest-auditor was already registered by a previous audit run in
+    // this TrueForge instance's lifetime -- that's expected on the 2nd+
+    // run, not a bug. Checked via statusCode rather than `instanceof
+    // ConflictError`: the SDK's ESM build (what Next.js's webpack
+    // resolves, vs. the CJS build Node/tsx resolves on the CLI path)
+    // doesn't re-export that class under this package version, which
+    // broke the web app's build entirely -- statusCode is a plain
+    // property on the shared TrueForgeError base class, so it's reliable
+    // regardless of which build got resolved.
+    if (err?.statusCode === 409) {
       return;
     }
     throw err;
