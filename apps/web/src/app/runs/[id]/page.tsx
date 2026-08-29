@@ -16,14 +16,20 @@ export default function RunPage({ params }: { params: Promise<{ id: string }> })
   useEffect(() => {
     // Initial fetch
     fetch(`/api/audits/${id}`)
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+        return res.json();
+      })
       .then(data => {
+        if (data.error) throw new Error(data.error);
         setRun(data.run);
         setResults(data.results);
         const eMap: any = {};
-        data.evidence.forEach((e: any) => {
-          eMap[e.tool_name] = e;
-        });
+        if (data.evidence) {
+          data.evidence.forEach((e: any) => {
+            eMap[e.tool_name] = e;
+          });
+        }
         setEvidenceMap(eMap);
         
         if (data.run?.status === 'AWAITING_APPROVAL') {
@@ -31,6 +37,9 @@ export default function RunPage({ params }: { params: Promise<{ id: string }> })
           fetch(`/api/audits/${id}/events`) // We just need events to find the pending toolCall
             .catch(console.error); // Handled by SSE stream below anyway
         }
+      })
+      .catch(err => {
+        console.error("Failed to fetch audit data:", err);
       });
 
     // SSE connection
@@ -111,6 +120,18 @@ export default function RunPage({ params }: { params: Promise<{ id: string }> })
                 <span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span></span>
                 AUDIT IN PROGRESS
               </span>
+            )}
+            {/* overall_verdict is only set after a human Allow/Deny decision
+                (see engine.ts's finalizeCertification) -- shown here so a
+                Deny visibly differs from a published CERTIFIED/FLAGGED report */}
+            {run.overall_verdict === 'CERTIFIED' && (
+              <span className="ml-2 inline-flex items-center gap-1.5 rounded-md bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700 ring-1 ring-emerald-600/20 ring-inset">CERTIFIED</span>
+            )}
+            {run.overall_verdict === 'FLAGGED' && (
+              <span className="ml-2 inline-flex items-center gap-1.5 rounded-md bg-red-100 px-2.5 py-1 text-xs font-bold text-red-700 ring-1 ring-red-600/10 ring-inset">FLAGGED</span>
+            )}
+            {run.overall_verdict === 'DENIED' && (
+              <span className="ml-2 inline-flex items-center gap-1.5 rounded-md bg-neutral-200 px-2.5 py-1 text-xs font-bold text-neutral-700 ring-1 ring-neutral-500/20 ring-inset">PUBLISH DENIED</span>
             )}
           </div>
         </div>
@@ -230,9 +251,14 @@ export default function RunPage({ params }: { params: Promise<{ id: string }> })
 function EvidenceViewer({ toolName, result, evidence }: { toolName: string, result: any, evidence: any }) {
   const isMismatch = result.verdict === 'MISMATCH';
   
+  // sandbox-scripts/test-tool.ts's Evidence.diff entries use `change`
+  // (one of added/removed/modified/table_added/table_removed), not `type` --
+  // the previous field/value names here never matched real evidence, so
+  // this always rendered as "no changes" regardless of what happened.
   const diffs = evidence.diff || [];
-  const added = diffs.filter((d: any) => d.type === 'table_added' || d.type === 'row_added').length;
-  const removed = diffs.filter((d: any) => d.type === 'table_removed' || d.type === 'row_removed').length;
+  const added = diffs.filter((d: any) => d.change === 'added' || d.change === 'table_added').length;
+  const removed = diffs.filter((d: any) => d.change === 'removed' || d.change === 'table_removed').length;
+  const modified = diffs.filter((d: any) => d.change === 'modified').length;
 
   return (
     <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm overflow-hidden">
@@ -269,6 +295,7 @@ function EvidenceViewer({ toolName, result, evidence }: { toolName: string, resu
                 <span className="text-neutral-900 font-bold block mb-2">State was mutated</span>
                 {added > 0 && <div className="text-emerald-700 font-medium">+ {added} row/table addition{added > 1 ? 's' : ''}</div>}
                 {removed > 0 && <div className="text-red-700 font-medium">− {removed} row/table removal{removed > 1 ? 's' : ''}</div>}
+                {modified > 0 && <div className="text-amber-700 font-medium">~ {modified} row/table modification{modified > 1 ? 's' : ''}</div>}
               </div>
             )}
           </div>
