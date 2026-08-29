@@ -59,14 +59,19 @@ export function saveEvidence(runId: string, toolName: string, evidenceObj: any) 
   const stmt = db.prepare(
     "INSERT INTO evidence (run_id, tool_name, test_input, before_snapshot, after_snapshot, diff, raw_response) VALUES (?, ?, ?, ?, ?, ?, ?)"
   );
+  // Field names must match the Evidence shape sandbox-scripts/test-tool.ts
+  // actually produces (testInput/before/after/diff/rawResponse) -- the
+  // previous names here (snapshotBefore/snapshotAfter/toolResponse) never
+  // matched anything real, so before/after snapshots and raw response were
+  // always persisted as empty defaults regardless of what was observed.
   stmt.run(
     runId,
     toolName,
     JSON.stringify(evidenceObj.testInput || {}),
-    JSON.stringify(evidenceObj.snapshotBefore || []),
-    JSON.stringify(evidenceObj.snapshotAfter || []),
+    JSON.stringify(evidenceObj.before || []),
+    JSON.stringify(evidenceObj.after || []),
     JSON.stringify(evidenceObj.diff || []),
-    JSON.stringify(evidenceObj.toolResponse || {})
+    JSON.stringify(evidenceObj.rawResponse || {})
   );
 }
 

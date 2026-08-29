@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getRun, updateRun, addEvent } from '../../../../../../lib/models';
-import { handleApproval } from '../../../../../../lib/engine';
+import { handleApproval, finalizeCertification } from '../../../../../../lib/engine';
 import { TrueForge } from '@truefoundry/trueforge-sdk';
 
 export const dynamic = 'force-dynamic';
@@ -31,6 +31,11 @@ export async function POST(
       threadId,
       toolCallId
     }, { allow, reason: allow ? undefined : 'User denied' });
+
+    // Score and persist the certification report now that the human's
+    // decision is actually known -- see finalizeCertification() in engine.ts
+    // for why this must happen here and not earlier.
+    finalizeCertification(id, allow);
 
     updateRun(id, { status: 'RUNNING' });
 
