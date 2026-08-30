@@ -279,7 +279,16 @@ Tasks:
 
     async function consumeStream(currentStream: any) {
       for await (const { data: event } of currentStream.withMetadata()) {
-        addEvent(runId, event.type, event);
+        // Skip token-streaming fragments. These are assembly artifacts of
+        // the model's output, not audit events: the completed text arrives
+        // separately as model.message, and nothing in the UI reads deltas.
+        // Persisting them was 81% of the event log by count (619 of 765 on
+        // one real run) and 149KB of the 250KB payload -- written to SQLite,
+        // pushed over SSE, accumulated in React state, and rendered in the
+        // raw log, for no informational gain.
+        if (!event.type.endsWith('.delta')) {
+          addEvent(runId, event.type, event);
+        }
 
         if (event.type === 'tool.approval_required') {
           // Note: verdicts/evidence are intentionally NOT computed or

@@ -26,6 +26,9 @@ interface RunEvent {
   created_at: string;
 }
 
+/** Most recent N events rendered in the raw log. See the note at its usage. */
+const RAW_LOG_LIMIT = 100;
+
 export default function RunPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [run, setRun] = useState<any>(null);
@@ -325,7 +328,17 @@ export default function RunPage({ params }: { params: Promise<{ id: string }> })
             </button>
             {showRawLog && (
               <div className="border-t border-neutral-200 bg-neutral-950 text-neutral-300 font-mono text-xs px-6 py-5 overflow-x-auto max-h-96 overflow-y-auto">
-                {events.map(e => (
+                {/* Render only the most recent slice. A long audit can produce
+                    hundreds of events; mounting every one (each up to 2KB of
+                    stringified JSON) makes expanding this section janky, and
+                    when you open a raw log you are almost always looking for
+                    what happened most recently. */}
+                {events.length > RAW_LOG_LIMIT && (
+                  <p className="text-neutral-500 mb-3 pb-3 border-b border-neutral-800">
+                    Showing the most recent {RAW_LOG_LIMIT} of {events.length} events.
+                  </p>
+                )}
+                {events.slice(-RAW_LOG_LIMIT).map(e => (
                   <div key={e.id} className="mb-3 pb-3 border-b border-neutral-800 last:border-0">
                     <div className="text-neutral-500 mb-1">
                       {e.type} &middot; {formatTimestamp(e.created_at)}
