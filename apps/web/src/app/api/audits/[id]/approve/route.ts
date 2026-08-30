@@ -35,7 +35,7 @@ export async function POST(
     // Score and persist the certification report now that the human's
     // decision is actually known -- see finalizeCertification() in engine.ts
     // for why this must happen here and not earlier.
-    finalizeCertification(id, allow);
+    await finalizeCertification(id, allow);
 
     updateRun(id, { status: 'RUNNING' });
 

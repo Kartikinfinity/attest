@@ -58,8 +58,13 @@ export function AuditProgress({
       detail: toolCallCount > 0 ? `${toolCallCount} command${toolCallCount === 1 ? '' : 's'} executed so far` : undefined,
     },
     {
+      // Not "reached" while the run is still sitting at the gate: the
+      // approval request having fired is not the same as it having been
+      // answered. Marking it done there rendered a green tick next to the
+      // words "Awaiting your review", which contradicts itself and the
+      // Publish/Deny buttons directly below it.
       label: certificationLabel,
-      reached: hasApprovalRequest,
+      reached: hasApprovalRequest && !isAwaiting,
     },
   ];
 

@@ -65,6 +65,28 @@ html {
   background-size: 20px 20px;
 }
 
+/*
+ * Print: the certificate is a shareable artifact, so "Save as PDF" should
+ * produce the certificate alone -- not the app chrome, progress panel,
+ * per-tool accordions or raw log around it.
+ */
+@media print {
+  body {
+    background: #fff;
+  }
+  header,
+  .print\:hidden {
+    display: none !important;
+  }
+  main > *:not(:first-child) {
+    display: none !important;
+  }
+  main {
+    padding: 0 !important;
+    max-width: none !important;
+  }
+}
+
 /* Respect reduced-motion preferences globally -- interactions stay
    instant/functional, just without the animated transition. */
 @media (prefers-reduced-motion: reduce) {

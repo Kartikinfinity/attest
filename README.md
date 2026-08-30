@@ -30,6 +30,36 @@ Annotations are claims. Observed behavior is evidence.
 
 ---
 
+## See It In Action
+
+### 1. Submit a server
+
+Point Attest at any repo and directory. It tells you up front what it will check — no configuration, no test-writing.
+
+![Attest dashboard: submit a server for audit, with recent executions listed alongside](docs/images/01-dashboard.png)
+
+### 2. The agent stops and asks before publishing
+
+`publish_certification` is the one irreversible action in the system, and it is gated. The audit runs to completion, then **pauses** — nothing is scored or published until a human clicks. Denying is a real outcome, not a cosmetic dismissal.
+
+![The approval gate: the audit pauses and asks a human to approve or deny publishing the certification](docs/images/04-approval-gate.png)
+
+### 3. Read the certificate
+
+The deliverable. **`get_invoice` declares `readOnlyHint: true` but wrote to `audit_log`** — caught by executing it, not by reading its source. Note the *Basis of this result* footer: the verdicts came from before/after state diffs scored by a deterministic function, not from a language model.
+
+![Certificate of behavioral verification showing FLAGGED, with a declared-vs-observed table identifying the get_invoice mismatch](docs/images/02-certificate.png)
+
+### 4. Drill into the evidence
+
+Every verdict is backed by the actual test input, the raw MCP response, and the observed state diff — so a finding can be checked rather than taken on trust.
+
+![Expanded tool result showing the recorded test input, raw response and state diff behind a verdict](docs/images/03-evidence.png)
+
+> The certificate above is reproducible without an API key: run `npx tsx apps/web/scripts/seed-demo-run.ts` from `apps/web`, then open `/runs/demo-invoice-server`. Its numbers are the real observed results of auditing `invoice-server`, and its verdicts are computed by the real verdict engine rather than hardcoded.
+
+---
+
 ## Where TrueForge Fits
 
 TrueForge is not a wrapper around a model here — it is the execution substrate the whole audit runs on. Attest needs three things at once that TrueForge provides as first-class primitives:

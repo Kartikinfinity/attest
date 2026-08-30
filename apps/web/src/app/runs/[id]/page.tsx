@@ -17,6 +17,7 @@ import { StatusBadge } from '../../../components/StatusBadge';
 import { AuditProgress } from '../../../components/AuditProgress';
 import { ToolResultCard } from '../../../components/ToolResultCard';
 import { CopyButton } from '../../../components/CopyButton';
+import { Certificate } from '../../../components/Certificate';
 import { getRunDisplayStatus, formatDuration, formatTimestamp, getFailureGuidance } from '../../../lib/status';
 
 interface RunEvent {
@@ -179,8 +180,14 @@ export default function RunPage({ params }: { params: Promise<{ id: string }> })
       </AppHeader>
 
       <main className="mx-auto max-w-6xl px-4 sm:px-6 py-8 sm:py-10 space-y-6">
-        {/* Overview card */}
-        <OverviewCard run={run} passed={passed} failed={failed} warnings={warnings} toolsTested={results.length} />
+        {/* The certificate IS the deliverable, so it leads once a verdict
+            exists. Before that there is nothing to certify and the overview
+            card carries the run metadata instead. */}
+        {run.overall_verdict ? (
+          <Certificate run={run} results={results} />
+        ) : (
+          <OverviewCard run={run} passed={passed} failed={failed} warnings={warnings} toolsTested={results.length} />
+        )}
 
         {/* Running / awaiting-approval progress */}
         {isRunningState && (

@@ -39,6 +39,9 @@ coverage/
 *.db
 *.db-wal
 *.db-shm
+# ...including timestamped backups (attest.db.backup-193045 etc), which the
+# bare *.db pattern does not match because the extension is not last.
+*.db.backup-*
 
 
 # Sandbox tmp
