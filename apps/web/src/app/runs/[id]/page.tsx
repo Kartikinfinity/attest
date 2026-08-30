@@ -237,9 +237,12 @@ export default function RunPage({ params }: { params: Promise<{ id: string }> })
                     <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2">
                       How to fix this
                     </p>
-                    <ul className="text-sm text-neutral-600 space-y-1.5 list-disc list-inside marker:text-neutral-300">
+                    {/* list-outside + pl, not list-inside: with list-inside a
+                        wrapped step aligns back under its own bullet instead
+                        of hanging-indenting, which reads as a new item. */}
+                    <ul className="text-sm text-neutral-600 space-y-1.5 list-disc list-outside pl-5 marker:text-neutral-300">
                       {guidance.nextSteps.map(step => (
-                        <li key={step}>{step}</li>
+                        <li key={step} className="leading-relaxed break-words">{step}</li>
                       ))}
                     </ul>
                   </>
