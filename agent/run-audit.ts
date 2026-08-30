@@ -68,19 +68,30 @@ Tasks:
    /home/trueforge/attest-runner/sandbox-scripts/.sandbox-tmp/repo/${SERVER_DIR}
    Call that TARGET_DIR and use it below.
 
-2. For EACH tool discovered, spawn a separate Subagent. Assign each subagent a unique port (e.g., 3056, 3057, 3058) and give it these instructions:
-   - Run sandbox-scripts/test-tool.ts with your assigned port to safely test the tool against its own isolated fixture copy.
-   - Example Command: cd /home/trueforge/attest-runner/sandbox-scripts && npx tsx test-tool.ts <TARGET_DIR> <tool_name> <TARGET_DIR>/fixture.db <port> '<test_input_json>'
-   - Return the Evidence JSON to the root agent.
+2. Run ALL tool tests with ONE background command. Do NOT spawn a subagent
+   per tool and do NOT run them in the foreground -- a single tool test does
+   not reliably fit inside the sandbox's ~60s per-command ceiling, so
+   foreground runs time out and retrying them burns the whole budget.
 
-2.5. Optional -- only if genuinely applicable: look at the tool names/schemas from step 1. If several tools clearly share one entity (e.g. a tool that creates something alongside tools that read/update/delete that same kind of thing), run ONE additional workflow-chain test using sandbox-scripts/test-workflow.ts on its own fresh fixture copy and port. This calls the related tools in a realistic sequence against ONE shared fixture copy, which can reveal a mismatch that only shows up after a prior step.
-   Command: cd /home/trueforge/attest-runner/sandbox-scripts && npx tsx test-workflow.ts <TARGET_DIR> <TARGET_DIR>/fixture.db <port> '[{"toolName":"...","args":{...}}, {"toolName":"...","args":{...}}]'
-   Skip this step entirely if no meaningful multi-tool relationship exists -- it supplements step 2, it never replaces it.
+   Build one entry per discovered tool, with a minimal schema-valid input:
+   [{"toolName":"...","args":{...}}, ...]
 
-3. After all subagents (and the workflow-chain test, if you ran one) complete, compile their Evidence.
-   Do NOT decide the verdicts yourself.
+   Launch in the BACKGROUND (returns immediately):
+   cd /home/trueforge/attest-runner/sandbox-scripts && rm -f /tmp/attest-evidence.json && nohup npx tsx run-all-tools.ts <TARGET_DIR> <TARGET_DIR>/fixture.db 3100 '<toolsJson>' /tmp/attest-evidence.json > /tmp/attest-audit.log 2>&1 & echo launched
 
-4. Finally, call the \`publish_certification\` tool (from the attest-internal MCP server) with the compiled CertificationReport JSON containing the evidence.
+   Each tool still gets its OWN fixture copy and OWN port.
+
+3. Poll for completion, ~15s apart, with this exact command:
+   test -f /tmp/attest-evidence.json && echo READY || tail -3 /tmp/attest-audit.log
+   READY means done. The file is written in one shot at the end, so if it
+   exists it is complete. Give up after ~10 polls and continue anyway.
+
+4. Read it and publish:
+   cat /tmp/attest-evidence.json
+   Take the evidence array, pair each entry with its ToolBehaviorClaim from
+   step 1 by toolName, and call the publish_certification tool (from the
+   attest-internal MCP server) with the compiled CertificationReport JSON.
+   Do NOT decide verdicts yourself. Publish without further exploration.
 `;
 
   console.log('\nSending audit instructions:');

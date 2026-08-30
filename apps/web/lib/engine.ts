@@ -307,19 +307,48 @@ Tasks:
    /home/trueforge/attest-runner/sandbox-scripts/.sandbox-tmp/repo/${serverDir}
    Use that absolute path (call it TARGET_DIR) in the steps below.
 
-2. For EACH tool discovered, spawn a separate Subagent. Assign each subagent a unique port (e.g., 3056, 3057, 3058) and give it these instructions:
-   - Run sandbox-scripts/test-tool.ts with your assigned port to safely test the tool against its own isolated fixture copy.
-   - Example Command: cd /home/trueforge/attest-runner/sandbox-scripts && npx tsx test-tool.ts <TARGET_DIR> <tool_name> <TARGET_DIR>/fixture.db <port> '<test_input_json>'
-   - Return the Evidence JSON to the root agent.
+2. Run ALL the tool tests with ONE background command. Do NOT spawn one
+   subagent per tool and do NOT run the tests in the foreground: a single
+   tool test does not reliably finish inside the sandbox's ~60s per-command
+   ceiling, so foreground runs time out, and retrying them is what causes an
+   audit to burn its entire budget without finishing.
 
-2.5. Optional -- only if genuinely applicable: look at the tool names/schemas from step 1. If several tools clearly share one entity (e.g. a tool that creates something alongside tools that read/update/delete that same kind of thing), run ONE additional workflow-chain test using sandbox-scripts/test-workflow.ts on its own fresh fixture copy and port. This calls the related tools in a realistic sequence against ONE shared fixture copy (not isolated per-call), which can reveal a mismatch that only shows up after a prior step.
-   Command: cd /home/trueforge/attest-runner/sandbox-scripts && npx tsx test-workflow.ts <TARGET_DIR> <TARGET_DIR>/fixture.db <port> '[{"toolName":"...","args":{...}}, {"toolName":"...","args":{...}}]'
-   This prints a WORKFLOW EVIDENCE JSON array -- one Evidence object per step, in the exact same shape test-tool.ts produces. Skip this step entirely if no meaningful multi-tool relationship exists for this server -- it supplements the per-tool tests in step 2, it never replaces them.
+   Build a JSON array of one entry per discovered tool, each with a minimal,
+   schema-valid input based on the inputSchema from step 1:
+   [{"toolName":"...","args":{...}}, ...]
 
-3. After all subagents (and the workflow-chain test, if you ran one) complete, compile ALL of their Evidence into a JSON array called \`evidenceArray\`.
-   For each evidence entry, ensure you pair it with the corresponding \`ToolBehaviorClaim\` (from the discover-tools.ts output), matched by toolName. A tool tested both in isolation and as part of a chain will legitimately produce two separate (claim, evidence) pairs -- include both.
+   Then launch it in the BACKGROUND (this returns immediately):
+   cd /home/trueforge/attest-runner/sandbox-scripts && rm -f /tmp/attest-evidence.json && nohup npx tsx run-all-tools.ts <TARGET_DIR> <TARGET_DIR>/fixture.db 3100 '<toolsJson>' /tmp/attest-evidence.json > /tmp/attest-audit.log 2>&1 & echo launched
 
-4. Finally, call the \`publish_certification\` tool (from the attest-internal MCP server) with a JSON string containing \`{ evidence: evidenceArray, claims: claimsArray }\`.`;
+   This tests every tool against its OWN fixture copy on its OWN port, the
+   same isolation the per-tool script uses, and writes one result file.
+
+3. Poll for completion. Wait roughly 15 seconds between polls, and run this
+   exact command each time:
+   test -f /tmp/attest-evidence.json && echo READY || tail -3 /tmp/attest-audit.log
+
+   - If it prints READY, go to step 4.
+   - Otherwise it prints recent progress lines; poll again.
+   - The result file is written in a single operation at the very end, so if
+     it exists it is complete -- never try to parse a partial file.
+   - Give up only after about 10 polls, and then go to step 4 anyway using
+     whatever the log shows.
+
+4. Read the evidence, then publish:
+   cat /tmp/attest-evidence.json
+
+   That file is {"status":"complete","evidence":[...],"errors":[...]}. Take
+   its \`evidence\` array. Pair each entry with the matching ToolBehaviorClaim
+   from step 1 (match on toolName; a claim is the tool's declared
+   annotations, e.g. readOnlyHint). Any tool listed in \`errors\` simply has no
+   evidence -- report it, do not retry it.
+
+   Then call the \`publish_certification\` tool (from the attest-internal MCP
+   server) with a JSON string containing
+   \`{ evidence: evidenceArray, claims: claimsArray }\`.
+
+   Do NOT do any further exploration before publishing. Publishing is the
+   goal, and it pauses for a human to approve -- that pause is expected.`;
 
     const stream = await client.sessions.createTurnStream(session.id, {
       input: [{ type: 'user.message', content: prompt }],
