@@ -1,4 +1,4 @@
-import { getEvents, getRun } from '../../../../../../lib/models';
+import { DEMO_MODE } from '../../../../../../lib/demo-mode';
 
 export const dynamic = 'force-dynamic';
 
@@ -7,6 +7,26 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+
+  // In a read-only demo there is nothing live to stream: the run is already
+  // finished. Emit a single completion event and close, so the page settles
+  // into its final state instead of holding an connection open forever.
+  if (DEMO_MODE) {
+    return new Response(
+      'event: connected\ndata: ok\n\n' +
+        'event: audit_complete\ndata: ' + JSON.stringify({ status: 'COMPLETED' }) + '\n\n',
+      {
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache, no-transform',
+          Connection: 'keep-alive',
+        },
+      }
+    );
+  }
+
+  // Lazy import keeps better-sqlite3 out of demo deployments.
+  const { getEvents, getRun } = await import('../../../../../../lib/models');
 
   let lastId = 0;
 
