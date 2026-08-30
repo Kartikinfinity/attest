@@ -106,6 +106,51 @@ export function finalizeCertification(runId: string, allow: boolean): void {
   }
 }
 
+/**
+ * Cancel a running audit.
+ *
+ * This is a real cancellation, not a cosmetic status flip: it calls
+ * TrueForge's sessions.cancel(), which stops the running turn server-side,
+ * then records the outcome locally. Without it a wedged agent (one looping
+ * on retries, say) leaves a run showing "Running" forever with no way for
+ * an operator to stop it.
+ *
+ * CANCELLED is deliberately its own status rather than being folded into
+ * FAILED -- "a human stopped this" and "this broke" are different
+ * outcomes, and the run's partial evidence stays valid and worth reading
+ * either way.
+ */
+export async function cancelAuditSession(runId: string): Promise<void> {
+  const run = getRun(runId);
+  if (!run) throw new Error(`Run ${runId} not found`);
+
+  // Terminal runs stay as they are -- cancelling a finished audit is a
+  // no-op, not an error worth surfacing to the caller.
+  if (run.status === 'COMPLETED' || run.status === 'FAILED' || run.status === 'CANCELLED') {
+    return;
+  }
+
+  if (run.session_id) {
+    try {
+      const baseUrl = process.env.TRUEFORGE_BASE_URL ?? 'http://localhost:8790';
+      const client = new TrueForge({ baseUrl });
+      await client.sessions.cancel(run.session_id, {});
+    } catch (err: any) {
+      // Still mark it cancelled locally. If TrueForge is unreachable or the
+      // turn already ended, the operator's intent ("stop showing this as
+      // running") is what matters -- failing here would leave the run stuck
+      // in exactly the state they were trying to escape.
+      console.error('sessions.cancel failed; marking cancelled locally anyway:', err?.message);
+      addEvent(runId, 'error', {
+        message: `Cancel requested, but TrueForge's sessions.cancel failed: ${err?.message ?? String(err)}. The run was marked cancelled locally; the agent turn may still be finishing server-side.`,
+      });
+    }
+  }
+
+  addEvent(runId, 'audit.cancelled', { message: 'Audit cancelled by operator.' });
+  updateRun(runId, { status: 'CANCELLED' });
+}
+
 export async function handleApproval(
   client: TrueForge,
   sessionId: string,
@@ -166,6 +211,34 @@ A note on this sandbox: each command you run may start in a fresh shell with no
 memory of a previous "cd". Do NOT rely on an earlier "cd" persisting. Every
 command below must be run using its full path or prefixed with
 "cd /home/trueforge/attest-runner && ...".
+
+=== RULES — these override your own judgment about what would be helpful ===
+
+R1. DO NOT read, cat, open, or grep the target server's source code. You are
+    auditing OBSERVED BEHAVIOR, not source. Reading the implementation would
+    let you infer what a tool "should" do instead of recording what it
+    actually did, which invalidates the entire audit. The only things you may
+    read are the JSON outputs of the scripts listed below.
+
+R2. DO NOT start, stop, or manage the target server yourself. Do not run
+    "npm run start", do not background processes, do not check PIDs, do not
+    curl the server directly. sandbox-scripts/test-tool.ts and
+    test-workflow.ts each start and stop their own server internally. Manual
+    server management is the single most common way this audit goes wrong.
+
+R3. A command may fail with "command execution timeout" (the sandbox enforces
+    a ~60s ceiling per command). If that happens, DO NOT immediately re-run
+    the same command. First re-read the output you already have: these
+    scripts print their result before finishing, so the evidence may already
+    be present. Only retry if there is genuinely no output, and retry a given
+    command AT MOST ONCE.
+
+R4. Once a tool has produced an "--- EVIDENCE JSON ---" block, that tool is
+    DONE. Never test it a second time. Record the evidence and move on.
+
+R5. When every discovered tool has one evidence object, go straight to the
+    final step and call publish_certification. Do not do additional
+    exploration, verification, or tidying first. Finishing is the goal.
 
 Tasks:
 0. Before anything else, confirm Node.js and npx are available in this sandbox:

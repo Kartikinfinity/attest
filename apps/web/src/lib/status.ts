@@ -8,7 +8,7 @@
 export type StatusTone = 'success' | 'danger' | 'warning' | 'info' | 'neutral';
 
 export interface RunLike {
-  status: 'PENDING' | 'RUNNING' | 'AWAITING_APPROVAL' | 'COMPLETED' | 'FAILED';
+  status: 'PENDING' | 'RUNNING' | 'AWAITING_APPROVAL' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
   overall_verdict: string | null;
 }
 
@@ -22,6 +22,10 @@ export function getRunDisplayStatus(run: RunLike): DisplayStatus {
   switch (run.status) {
     case 'FAILED':
       return { label: 'Audit Failed', tone: 'danger', pulsing: false };
+    // Neutral, not danger: an operator stopping a run is a deliberate
+    // control action, not a malfunction.
+    case 'CANCELLED':
+      return { label: 'Cancelled', tone: 'neutral', pulsing: false };
     case 'PENDING':
       return { label: 'Starting', tone: 'info', pulsing: true };
     case 'RUNNING':

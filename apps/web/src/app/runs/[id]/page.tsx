@@ -34,6 +34,7 @@ export default function RunPage({ params }: { params: Promise<{ id: string }> })
   const [evidenceMap, setEvidenceMap] = useState<any>({});
   const [approvalRequired, setApprovalRequired] = useState<any>(null);
   const [approvalPending, setApprovalPending] = useState(false);
+  const [cancelPending, setCancelPending] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showRawLog, setShowRawLog] = useState(false);
 
@@ -89,6 +90,24 @@ export default function RunPage({ params }: { params: Promise<{ id: string }> })
 
     return () => eventSource.close();
   }, [id]);
+
+  const handleCancel = async () => {
+    if (cancelPending) return;
+    setCancelPending(true);
+    try {
+      await fetch(`/api/audits/${id}/cancel`, { method: 'POST' });
+      // Refetch rather than optimistically setting the status: the server
+      // may also have appended an event explaining that TrueForge's own
+      // cancel call failed, which the operator needs to see.
+      const res = await fetch(`/api/audits/${id}`);
+      const fresh = await res.json();
+      if (fresh.run) setRun(fresh.run);
+    } catch (err) {
+      console.error('Cancel failed:', err);
+    } finally {
+      setCancelPending(false);
+    }
+  };
 
   const handleApproval = async (allow: boolean) => {
     if (!approvalRequired || approvalPending) return;
@@ -163,7 +182,17 @@ export default function RunPage({ params }: { params: Promise<{ id: string }> })
         {/* Running / awaiting-approval progress */}
         {isRunningState && (
           <div className="bg-white rounded-2xl border border-neutral-200 p-6 sm:p-8">
-            <h3 className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-6">Audit Progress</h3>
+            <div className="flex items-start justify-between gap-4 mb-6">
+              <h3 className="text-xs font-bold text-neutral-500 uppercase tracking-widest">Audit Progress</h3>
+              <button
+                type="button"
+                onClick={handleCancel}
+                disabled={cancelPending}
+                className="text-xs font-semibold text-neutral-500 hover:text-red-700 hover:bg-red-50 px-2.5 py-1.5 rounded-md border border-neutral-200 hover:border-red-200 transition-colors disabled:opacity-60 disabled:pointer-events-none focus-visible:ring-2 focus-visible:ring-accent flex-shrink-0"
+              >
+                {cancelPending ? 'Cancelling…' : 'Cancel audit'}
+              </button>
+            </div>
             <AuditProgress status={run.status} events={events} />
           </div>
         )}
@@ -202,6 +231,19 @@ export default function RunPage({ params }: { params: Promise<{ id: string }> })
                 </div>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Cancelled — a deliberate operator action, not a malfunction, so
+            it gets neutral styling and keeps whatever evidence was gathered. */}
+        {run.status === 'CANCELLED' && (
+          <div className="bg-white border border-neutral-200 rounded-2xl p-6 sm:p-8">
+            <h3 className="text-lg font-bold text-neutral-900 mb-1">Audit cancelled</h3>
+            <p className="text-sm text-neutral-600 leading-relaxed">
+              This run was stopped by an operator before it finished. Any evidence collected before
+              the stop is shown below and is still valid — but the audit is incomplete, so no
+              certification was produced.
+            </p>
           </div>
         )}
 

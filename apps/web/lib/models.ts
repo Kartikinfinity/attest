@@ -4,7 +4,7 @@ export interface Run {
   id: string;
   repo_url: string;
   server_dir: string;
-  status: 'PENDING' | 'RUNNING' | 'AWAITING_APPROVAL' | 'COMPLETED' | 'FAILED';
+  status: 'PENDING' | 'RUNNING' | 'AWAITING_APPROVAL' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
   session_id: string | null;
   overall_verdict: string | null;
   /** Set only when status = 'FAILED' -- see lib/failure-classification.ts. */

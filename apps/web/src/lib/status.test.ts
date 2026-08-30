@@ -37,6 +37,20 @@ describe('getRunDisplayStatus', () => {
     expect(denied.label).not.toBe(failed.label);
   });
 
+  // An operator stopping a run is a control action, not a malfunction. It
+  // must not render as an error, and must not be confused with a denied
+  // publish (which means the audit DID complete and was reviewed).
+  it('renders a cancelled run as neutral, distinct from failed and denied', () => {
+    const cancelled = getRunDisplayStatus({ status: 'CANCELLED', overall_verdict: null });
+    const failed = getRunDisplayStatus({ status: 'FAILED', overall_verdict: null });
+    const denied = getRunDisplayStatus({ status: 'COMPLETED', overall_verdict: 'DENIED' });
+
+    expect(cancelled.tone).toBe('neutral');
+    expect(cancelled.pulsing).toBe(false);
+    expect(cancelled.tone).not.toBe(failed.tone);
+    expect(cancelled.label).not.toBe(denied.label);
+  });
+
   it('marks in-flight states as pulsing', () => {
     expect(getRunDisplayStatus({ status: 'RUNNING', overall_verdict: null }).pulsing).toBe(true);
     expect(getRunDisplayStatus({ status: 'AWAITING_APPROVAL', overall_verdict: null }).pulsing).toBe(true);

@@ -33,6 +33,16 @@ export function AuditProgress({
   const isRunning = status === 'RUNNING' || status === 'PENDING';
   const isAwaiting = status === 'AWAITING_APPROVAL';
 
+  // The final milestone must not claim to be waiting on the human unless it
+  // genuinely is. Labelling it "Awaiting your review" while the agent is
+  // still working reads as "there is a button for me somewhere" when there
+  // is nothing to approve yet -- actively misleading, and it was.
+  const certificationLabel = hasApprovalRequest
+    ? isAwaiting
+      ? 'Awaiting your review'
+      : 'Certification reviewed'
+    : 'Certification ready for review';
+
   const milestones: Milestone[] = [
     { label: 'Audit started', reached: true },
     { label: 'Sandbox initialized', reached: hasSandbox },
@@ -42,7 +52,7 @@ export function AuditProgress({
       detail: toolCallCount > 0 ? `${toolCallCount} command${toolCallCount === 1 ? '' : 's'} executed so far` : undefined,
     },
     {
-      label: hasApprovalRequest ? 'Certification reviewed' : 'Awaiting your review',
+      label: certificationLabel,
       reached: hasApprovalRequest,
     },
   ];
