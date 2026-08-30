@@ -59,6 +59,75 @@ export function getToolVerdictDisplay(verdict: string, severity: string | null):
   }
 }
 
+/**
+ * Human-readable guidance for a classified failure. The category itself is
+ * derived deterministically in apps/web/lib/failure-classification.ts from
+ * the real error text -- this only maps that category to what a developer
+ * should actually DO about it, so a failed run answers "what happened /
+ * why / what next" instead of dumping a raw provider error string.
+ */
+export interface FailureGuidance {
+  title: string;
+  explanation: string;
+  nextSteps: string[];
+}
+
+const FAILURE_GUIDANCE: Record<string, FailureGuidance> = {
+  TRUEFORGE_UNREACHABLE: {
+    title: 'Could not reach TrueForge',
+    explanation:
+      'Attest reached its own preflight check and could not connect to the TrueForge instance that runs the audit. Nothing was executed.',
+    nextSteps: [
+      'Start TrueForge: npx @truefoundry/trueforge@latest',
+      'Confirm it is listening on the URL in TRUEFORGE_BASE_URL (default http://localhost:8790)',
+      'On Windows, run TrueForge from WSL2 — its standalone server does not start on native Windows',
+    ],
+  },
+  MODEL_PROVIDER_ERROR: {
+    title: 'The model provider rejected the request',
+    explanation:
+      'TrueForge was reachable and the audit started, but the configured model provider refused to answer — typically a billing, quota, or API-key problem rather than anything wrong with the server being audited.',
+    nextSteps: [
+      'Check the credit balance / rate limits on the provider configured in TrueForge → Settings → Models',
+      'If you switched providers, set ATTEST_MODEL_NAME to match and re-register the agent (delete attest-auditor in TrueForge first — its model is fixed at registration time)',
+      'Free-tier models often cap requests per minute; an audit needs several in quick succession',
+    ],
+  },
+  SANDBOX_ERROR: {
+    title: 'The sandbox could not be provisioned',
+    explanation:
+      'The auditor agent requires an isolated sandbox to run the submitted server in, and TrueForge could not provide one.',
+    nextSteps: [
+      'Add a Daytona API key in TrueForge → Settings → Sandbox providers',
+      "TrueForge's built-in local sandbox fallback is macOS/Linux only — on Windows a Daytona provider is required",
+    ],
+  },
+  SERVER_ERROR: {
+    title: 'The target server failed to start in the sandbox',
+    explanation:
+      'The sandbox came up, but the MCP server being audited (or a prerequisite for starting it) failed before tools could be discovered.',
+    nextSteps: [
+      'Confirm the server directory path is correct and contains a package.json with a "start" script',
+      'Confirm the server starts locally with npm install && npm run start',
+      'Check the raw execution log below for the exact command that failed',
+    ],
+  },
+  TIMEOUT: {
+    title: 'The audit timed out',
+    explanation:
+      'A step took longer than its allowed window — most often the target server not becoming reachable before the startup deadline.',
+    nextSteps: [
+      'Check whether the server takes an unusually long time to install dependencies or boot',
+      'Check the raw execution log below for the step that stalled',
+    ],
+  },
+};
+
+export function getFailureGuidance(category: string | null | undefined): FailureGuidance | null {
+  if (!category) return null;
+  return FAILURE_GUIDANCE[category] ?? null;
+}
+
 const TONE_CLASSES: Record<StatusTone, { bg: string; text: string; ring: string; dot: string }> = {
   success: { bg: 'bg-emerald-50', text: 'text-emerald-700', ring: 'ring-emerald-600/20', dot: 'bg-emerald-500' },
   danger: { bg: 'bg-red-50', text: 'text-red-700', ring: 'ring-red-600/20', dot: 'bg-red-500' },

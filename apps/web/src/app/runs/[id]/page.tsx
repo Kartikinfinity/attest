@@ -17,7 +17,7 @@ import { StatusBadge } from '../../../components/StatusBadge';
 import { AuditProgress } from '../../../components/AuditProgress';
 import { ToolResultCard } from '../../../components/ToolResultCard';
 import { CopyButton } from '../../../components/CopyButton';
-import { getRunDisplayStatus, formatDuration, formatTimestamp } from '../../../lib/status';
+import { getRunDisplayStatus, formatDuration, formatTimestamp, getFailureGuidance } from '../../../lib/status';
 
 interface RunEvent {
   id: number;
@@ -138,6 +138,11 @@ export default function RunPage({ params }: { params: Promise<{ id: string }> })
   const display = getRunDisplayStatus(run);
   const errorEvent = [...events].reverse().find(e => e.type === 'error');
   const isFailed = run.status === 'FAILED';
+  // failure_category is classified deterministically server-side (see
+  // apps/web/lib/failure-classification.ts); this maps it to actionable
+  // guidance so a failed run explains itself instead of showing a raw
+  // provider error string and a generic list of maybe-causes.
+  const guidance = getFailureGuidance(run.failure_category);
   const isRunningState = run.status === 'PENDING' || run.status === 'RUNNING' || run.status === 'AWAITING_APPROVAL';
   const passed = results.filter(r => r.verdict === 'VERIFIED').length;
   const failed = results.filter(r => r.verdict === 'MISMATCH' && r.severity === 'HIGH').length;
@@ -208,24 +213,42 @@ export default function RunPage({ params }: { params: Promise<{ id: string }> })
                 <XCircle className="h-6 w-6 text-red-500" aria-hidden="true" />
               </div>
               <div className="min-w-0 flex-1">
-                <h3 className="text-lg font-bold text-neutral-900 mb-2">Audit Failed to Start</h3>
-                {errorEvent ? (
+                <h3 className="text-lg font-bold text-neutral-900 mb-1">
+                  {guidance?.title ?? 'Audit failed'}
+                </h3>
+                <p className="text-sm text-neutral-600 mb-4 leading-relaxed">
+                  {guidance?.explanation ??
+                    'The audit did not complete. This is an execution failure — it is not a finding about the server being audited.'}
+                </p>
+
+                {errorEvent && (
                   <div className="rounded-xl bg-red-50 border border-red-100 px-4 py-3 mb-4">
+                    <p className="text-xs font-bold text-red-900/70 uppercase tracking-widest mb-1.5">
+                      Reported error
+                    </p>
                     <p className="text-sm text-red-800 font-mono leading-relaxed break-words">
                       {errorEvent.data?.message ?? 'Unknown error'}
                     </p>
                   </div>
+                )}
+
+                {guidance ? (
+                  <>
+                    <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2">
+                      How to fix this
+                    </p>
+                    <ul className="text-sm text-neutral-600 space-y-1.5 list-disc list-inside marker:text-neutral-300">
+                      {guidance.nextSteps.map(step => (
+                        <li key={step}>{step}</li>
+                      ))}
+                    </ul>
+                  </>
                 ) : (
-                  <p className="text-sm text-neutral-500 mb-4">
-                    The execution engine encountered an error before any details were captured.
+                  <p className="text-sm text-neutral-500">
+                    This failure could not be matched to a known cause. Check the raw execution log below
+                    for the last step that ran.
                   </p>
                 )}
-                <p className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2">Common causes</p>
-                <ul className="text-sm text-neutral-600 space-y-1 list-disc list-inside">
-                  <li>TrueForge isn&apos;t running, or isn&apos;t reachable at its configured URL</li>
-                  <li>The model provider has no available quota or billing credit</li>
-                  <li>No sandbox provider is configured in TrueForge&apos;s settings</li>
-                </ul>
               </div>
             </div>
           </div>
