@@ -261,31 +261,59 @@ R5. When every discovered tool has one evidence object, go straight to the
     exploration, verification, or tidying first. Finishing is the goal.
 
 Tasks:
-0. Before anything else, confirm Node.js and npx are available in this sandbox:
-   Command: node --version && npx --version
-   If either command is not found, install Node.js first using whatever package
-   manager is available (e.g. apt-get install -y nodejs npm, or curl -fsSL
-   https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs),
-   then re-run the version check to confirm before proceeding.
 
-0.5. The scripts referenced below (sandbox-scripts/discover-tools.ts,
-   sandbox-scripts/test-tool.ts) are NOT already present in this sandbox --
-   they live in the Attest project's own repo, which must be cloned first,
-   separately from the target server being audited.
-   Command: git clone "${repoUrl}" /home/trueforge/attest-runner
-   All commands in steps 1-4 below must run with /home/trueforge/attest-runner
-   as their working directory.
+0. BOOTSTRAP -- run these commands in exactly this order. Do not improvise a
+   different order: installing packages before the C++ toolchain exists is
+   what corrupts the dependency tree, and installing the whole monorepo runs
+   the sandbox out of memory.
 
-1. Run sandbox-scripts/discover-tools.ts to clone the repo, prepare the fixture, start the server, and list tools.
-   Command: cd /home/trueforge/attest-runner && npx tsx sandbox-scripts/discover-tools.ts "${repoUrl}" "${serverDir}" 3055
+   0a. Check for Node:
+       node --version && npm --version
+       If "node: command not found", install it:
+       curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs
+
+   0b. Install the build toolchain BEFORE any npm install. better-sqlite3 is
+       a native module and compiles from source here; without this, npm
+       install fails with "gyp ERR!" and leaves a half-written node_modules
+       that breaks every later command:
+       apt-get install -y python3 make g++
+
+   0c. Clone this project (it holds the audit scripts -- separate from the
+       server being audited):
+       git clone "${repoUrl}" /home/trueforge/attest-runner
+
+   0d. Install ONLY the audit scripts' own dependencies. Use this exact
+       command. Do NOT run npm install at /home/trueforge/attest-runner --
+       that installs the entire monorepo (Next.js, React, vitest, eslint)
+       and the sandbox will OOM-kill it, which shows up as
+       "Killed / EXIT: 137" followed by missing-package errors like
+       "@esbuild/linux-x64 could not be found":
+       cd /home/trueforge/attest-runner/sandbox-scripts && npm install --no-audit --no-fund
+
+   0e. Confirm the bootstrap worked before continuing:
+       cd /home/trueforge/attest-runner/sandbox-scripts && npx tsx --version
+       If that prints a version, the bootstrap is done. If it fails, re-run
+       0b then 0d once more, then continue regardless -- do not loop here.
+
+   IMPORTANT: every command in steps 1-4 runs from
+   /home/trueforge/attest-runner/sandbox-scripts (that is where the
+   dependencies now live), and uses ABSOLUTE paths for everything else.
+
+1. Discover the target server's tools. This clones the target, installs it,
+   seeds its fixture, starts it, and calls tools/list:
+   Command: cd /home/trueforge/attest-runner/sandbox-scripts && npx tsx discover-tools.ts "${repoUrl}" "${serverDir}" 3055
+
+   This creates the target checkout at:
+   /home/trueforge/attest-runner/sandbox-scripts/.sandbox-tmp/repo/${serverDir}
+   Use that absolute path (call it TARGET_DIR) in the steps below.
 
 2. For EACH tool discovered, spawn a separate Subagent. Assign each subagent a unique port (e.g., 3056, 3057, 3058) and give it these instructions:
    - Run sandbox-scripts/test-tool.ts with your assigned port to safely test the tool against its own isolated fixture copy.
-   - Example Command: cd /home/trueforge/attest-runner && npx tsx sandbox-scripts/test-tool.ts .sandbox-tmp/repo/${serverDir} <tool_name> .sandbox-tmp/repo/${serverDir}/fixture.db <port> '<test_input_json>'
+   - Example Command: cd /home/trueforge/attest-runner/sandbox-scripts && npx tsx test-tool.ts <TARGET_DIR> <tool_name> <TARGET_DIR>/fixture.db <port> '<test_input_json>'
    - Return the Evidence JSON to the root agent.
 
 2.5. Optional -- only if genuinely applicable: look at the tool names/schemas from step 1. If several tools clearly share one entity (e.g. a tool that creates something alongside tools that read/update/delete that same kind of thing), run ONE additional workflow-chain test using sandbox-scripts/test-workflow.ts on its own fresh fixture copy and port. This calls the related tools in a realistic sequence against ONE shared fixture copy (not isolated per-call), which can reveal a mismatch that only shows up after a prior step.
-   Command: cd /home/trueforge/attest-runner && npx tsx sandbox-scripts/test-workflow.ts .sandbox-tmp/repo/${serverDir} .sandbox-tmp/repo/${serverDir}/fixture.db <port> '[{"toolName":"...","args":{...}}, {"toolName":"...","args":{...}}]'
+   Command: cd /home/trueforge/attest-runner/sandbox-scripts && npx tsx test-workflow.ts <TARGET_DIR> <TARGET_DIR>/fixture.db <port> '[{"toolName":"...","args":{...}}, {"toolName":"...","args":{...}}]'
    This prints a WORKFLOW EVIDENCE JSON array -- one Evidence object per step, in the exact same shape test-tool.ts produces. Skip this step entirely if no meaningful multi-tool relationship exists for this server -- it supplements the per-tool tests in step 2, it never replaces them.
 
 3. After all subagents (and the workflow-chain test, if you ran one) complete, compile ALL of their Evidence into a JSON array called \`evidenceArray\`.
