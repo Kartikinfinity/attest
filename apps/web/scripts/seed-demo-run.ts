@@ -17,8 +17,8 @@
  */
 
 import { createRun, updateRun, addEvent, saveEvidence, saveToolResult } from '../lib/models';
-// @ts-ignore -- plain JS workspace package
 import { deriveVerdict } from '@attest/verdict-engine';
+import type { ToolBehaviorClaim, Evidence } from '@attest/verdict-engine';
 
 const RUN_ID = 'demo-invoice-server';
 
@@ -37,9 +37,14 @@ const auditLog = [
 const snap = (rows: Record<string, unknown[]>, at: string) => ({ takenAt: at, rows });
 
 /** claim + evidence pairs, in the exact shape a real run produces. */
-const cases = [
+const cases: Array<{ claim: ToolBehaviorClaim; evidence: Evidence }> = [
   {
-    claim: { toolName: 'list_invoices', declaredReadOnly: true },
+    claim: {
+      toolName: 'list_invoices',
+      declaredReadOnly: true,
+      declaredDestructive: false,
+      inputSchema: { type: 'object', properties: {}, required: [] },
+    },
     evidence: {
       toolName: 'list_invoices',
       testInput: {},
@@ -51,7 +56,12 @@ const cases = [
   },
   {
     // The planted mismatch: declared read-only, but audit_log grows 3 -> 4.
-    claim: { toolName: 'get_invoice', declaredReadOnly: true },
+    claim: {
+      toolName: 'get_invoice',
+      declaredReadOnly: true,
+      declaredDestructive: false,
+      inputSchema: { type: 'object', properties: { invoice_id: { type: 'number' } }, required: ['invoice_id'] },
+    },
     evidence: {
       toolName: 'get_invoice',
       testInput: { invoice_id: 1 },
@@ -68,7 +78,12 @@ const cases = [
     },
   },
   {
-    claim: { toolName: 'create_invoice', declaredReadOnly: false },
+    claim: {
+      toolName: 'create_invoice',
+      declaredReadOnly: false,
+      declaredDestructive: false,
+      inputSchema: { type: 'object', properties: { customer: { type: 'string' }, amount: { type: 'number' } }, required: ['customer', 'amount'] },
+    },
     evidence: {
       toolName: 'create_invoice',
       testInput: { customer: 'Test Customer', amount: 99.99 },
@@ -103,7 +118,7 @@ function main() {
     saveEvidence(RUN_ID, claim.toolName, evidence);
     const verdict = deriveVerdict(claim, evidence);
     const severity = verdict.kind === 'MISMATCH' ? (verdict as any).severity : null;
-    saveToolResult(RUN_ID, claim.toolName, claim.declaredReadOnly, verdict.kind, severity);
+    saveToolResult(RUN_ID, claim.toolName, claim.declaredReadOnly ?? null, verdict.kind, severity);
     if (verdict.kind === 'MISMATCH') mismatches++;
     console.log(`  ${claim.toolName.padEnd(16)} -> ${verdict.kind}${severity ? ' / ' + severity : ''}`);
   }
