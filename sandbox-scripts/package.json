@@ -1,0 +1,12 @@
+{
+  "name": "@attest/sandbox-scripts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Standalone dependency manifest so the audit sandbox installs ONLY what these three scripts need (better-sqlite3 + tsx) instead of the entire Attest monorepo, which OOM-killed the sandbox. Deliberately NOT a declared workspace of the root package.json, so `cd sandbox-scripts && npm install` resolves just this tree. Locally these scripts still resolve better-sqlite3/tsx from the repo root via normal upward node_modules lookup, so nothing changes for development.",
+  "dependencies": {
+    "better-sqlite3": "^11.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.12"
+  }
+}
