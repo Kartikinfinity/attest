@@ -1,5 +1,6 @@
 'use client';
 import { Check, X, Circle } from 'lucide-react';
+import { minutesSince } from '../lib/status';
 
 type MilestoneState = 'done' | 'active' | 'pending' | 'failed';
 
@@ -8,6 +9,9 @@ interface Milestone {
   reached: boolean;
   detail?: string;
 }
+
+/** Minutes without a new event before a RUNNING audit is called stalled. */
+const STALL_THRESHOLD_MINUTES = 3;
 
 /**
  * Progress steps derived ONLY from real, verifiable signals in the event
@@ -22,8 +26,8 @@ export function AuditProgress({
   status,
   events,
 }: {
-  status: 'PENDING' | 'RUNNING' | 'AWAITING_APPROVAL' | 'COMPLETED' | 'FAILED';
-  events: Array<{ type: string }>;
+  status: 'PENDING' | 'RUNNING' | 'AWAITING_APPROVAL' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+  events: Array<{ type: string; created_at?: string }>;
 }) {
   const hasSandbox = events.some(e => e.type === 'sandbox.created');
   const toolCallCount = events.filter(e => e.type === 'tool.response').length;
@@ -33,15 +37,17 @@ export function AuditProgress({
   const isRunning = status === 'RUNNING' || status === 'PENDING';
   const isAwaiting = status === 'AWAITING_APPROVAL';
 
-  // The final milestone must not claim to be waiting on the human unless it
-  // genuinely is. Labelling it "Awaiting your review" while the agent is
-  // still working reads as "there is a button for me somewhere" when there
-  // is nothing to approve yet -- actively misleading, and it was.
+  // Wording matters here: this milestone is UNREACHED until the agent
+  // actually requests approval. An earlier version labelled the unreached
+  // state "Awaiting your review", then "Certification ready for review" --
+  // both read as "something is ready for you", so an audit still grinding
+  // away looked like it was waiting on a click that did not exist. The
+  // unreached label must sound explicitly pending.
   const certificationLabel = hasApprovalRequest
     ? isAwaiting
       ? 'Awaiting your review'
       : 'Certification reviewed'
-    : 'Certification ready for review';
+    : 'Certification not yet proposed';
 
   const milestones: Milestone[] = [
     { label: 'Audit started', reached: true },
@@ -59,7 +65,27 @@ export function AuditProgress({
 
   const firstNotReached = milestones.findIndex(m => !m.reached);
 
+  // A wedged agent still emits "RUNNING" forever with a cheerfully pulsing
+  // dot. If nothing new has arrived for a while, say so plainly rather than
+  // letting the operator wonder whether it is working or hung.
+  const lastEventAt = events.length > 0 ? events[events.length - 1].created_at : undefined;
+  const stalledMinutes = isRunning && lastEventAt ? minutesSince(lastEventAt) : 0;
+  const isStalled = stalledMinutes >= STALL_THRESHOLD_MINUTES;
+
   return (
+    <>
+    {isStalled && (
+      <div className="mb-5 rounded-xl bg-amber-50 border border-amber-200 px-4 py-3">
+        <p className="text-sm font-semibold text-amber-900 mb-0.5">
+          No activity for {Math.floor(stalledMinutes)} minutes
+        </p>
+        <p className="text-sm text-amber-900/80 leading-relaxed">
+          The audit is still marked as running but has not produced a new event recently. It may be
+          waiting on a slow sandbox command, or the agent may be stuck. You can leave it, or use
+          Cancel audit above to stop it.
+        </p>
+      </div>
+    )}
     <ol className="space-y-4">
       {milestones.map((m, i) => {
         let state: MilestoneState;
@@ -114,5 +140,6 @@ export function AuditProgress({
         );
       })}
     </ol>
+    </>
   );
 }

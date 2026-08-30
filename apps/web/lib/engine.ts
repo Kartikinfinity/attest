@@ -40,10 +40,30 @@ export async function registerAuditorAgent(client: TrueForge): Promise<void> {
     // broke the web app's build entirely -- statusCode is a plain
     // property on the shared TrueForgeError base class, so it's reliable
     // regardless of which build got resolved.
-    if (err?.statusCode === 409) {
-      return;
+    if (err?.statusCode !== 409) throw err;
+
+    // The agent already exists. Do NOT just return -- the existing agent
+    // still carries whatever manifest it was created with, possibly days
+    // ago. Its instructions and model are then permanently stale: editing
+    // AUDITOR_INSTRUCTIONS or ATTEST_MODEL_NAME would have no effect, and
+    // the audit would keep running against the old system prompt with no
+    // indication anything was ignored. This was a real failure -- an agent
+    // registered before the "never read the target's source" rule existed
+    // kept reading source and never converged.
+    //
+    // agents.create's name is immutable but agents.update replaces the
+    // manifest for an existing agent id, so reconcile it instead.
+    try {
+      const { data: agents } = await client.agents.list();
+      const existing = agents.find((a: any) => a.name === 'attest-auditor');
+      if (existing) {
+        await client.agents.update(existing.id, { manifest: buildAuditorManifest() });
+      }
+    } catch (updateErr: any) {
+      // Reconciliation is best-effort: an audit against a slightly stale
+      // agent is far better than no audit at all, so this must not be fatal.
+      console.error('Could not reconcile existing attest-auditor manifest:', updateErr?.message);
     }
-    throw err;
   }
 }
 

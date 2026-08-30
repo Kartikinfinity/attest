@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { getRunDisplayStatus, getToolVerdictDisplay, getFailureGuidance, formatDuration } from './status';
+import { getRunDisplayStatus, getToolVerdictDisplay, getFailureGuidance, formatDuration, formatTimestamp, minutesSince } from './status';
 import { classifyFailure } from '../../lib/failure-classification';
 
 describe('getRunDisplayStatus', () => {
@@ -86,6 +86,38 @@ describe('formatDuration', () => {
   // skew or an unwritten updated_at must not render "-3s".
   it('never renders a negative duration', () => {
     expect(formatDuration('2026-01-01T00:00:10Z', '2026-01-01T00:00:00Z')).toBe('0s');
+  });
+
+  // Regression: SQLite emits "YYYY-MM-DD HH:MM:SS" in UTC with no zone
+  // marker. Passed raw to new Date() that is read as LOCAL time, so a
+  // duration spanning two SQLite timestamps was still correct (both shifted
+  // equally) but any absolute time rendered was off by the viewer's UTC
+  // offset. Both formats must agree.
+  it('treats bare SQLite timestamps as UTC, matching the ISO equivalent', () => {
+    const sqlite = formatDuration('2026-08-30 03:52:18', '2026-08-30 03:54:32');
+    const iso = formatDuration('2026-08-30T03:52:18Z', '2026-08-30T03:54:32Z');
+    expect(sqlite).toBe('2m 14s');
+    expect(sqlite).toBe(iso);
+  });
+});
+
+describe('formatTimestamp', () => {
+  // The user-visible symptom of the bug above: a run created at 09:26 local
+  // (03:56 UTC) rendered as "03:56". Pinning that a bare SQLite timestamp
+  // and its explicit-UTC equivalent format identically.
+  it('renders a bare SQLite timestamp the same as explicit UTC', () => {
+    expect(formatTimestamp('2026-08-30 03:52:18')).toBe(formatTimestamp('2026-08-30T03:52:18Z'));
+  });
+});
+
+describe('minutesSince', () => {
+  it('measures elapsed minutes from a SQLite timestamp', () => {
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60_000)
+      .toISOString()
+      .replace('T', ' ')
+      .slice(0, 19);
+    expect(minutesSince(tenMinutesAgo)).toBeGreaterThan(9.5);
+    expect(minutesSince(tenMinutesAgo)).toBeLessThan(10.5);
   });
 });
 

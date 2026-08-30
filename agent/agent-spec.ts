@@ -46,17 +46,33 @@ export async function registerAuditorAgent(client: TrueForge): Promise<void> {
     }
   });
 
-  await client.agents.create({
-    name: 'attest-auditor',
-    // Manifest (model, instructions, MCP servers, sandbox/subagent/iteration
-    // config) comes from the single shared builder in packages/agent-prompts
-    // -- see buildAuditorManifest() there for why. Model name and iteration
-    // limit are read from ATTEST_MODEL_NAME / ATTEST_ITERATION_LIMIT env
-    // vars, so switching providers (e.g. to a local DGX Spark endpoint
-    // registered in TrueForge as a `custom` model provider, or back to
-    // Anthropic once billing is set up) never needs a code change here.
-    manifest: buildAuditorManifest(),
-  });
+  // Manifest (model, instructions, MCP servers, sandbox/subagent/iteration
+  // config) comes from the single shared builder in packages/agent-prompts.
+  // Model name and iteration limit are read from ATTEST_MODEL_NAME /
+  // ATTEST_ITERATION_LIMIT env vars, so switching providers (e.g. to a local
+  // DGX Spark endpoint registered in TrueForge as a `custom` model provider,
+  // or back to Anthropic once billing is set up) never needs a code change.
+  const manifest = buildAuditorManifest();
+
+  try {
+    await client.agents.create({ name: 'attest-auditor', manifest });
+    console.log('   (created a new attest-auditor agent)');
+  } catch (err: any) {
+    if (err?.statusCode !== 409) throw err;
+
+    // Already exists -- reconcile its manifest rather than leaving it stale.
+    // agents.create's name is immutable, but an agent created before a
+    // prompt or model change would otherwise keep running the old manifest
+    // forever, silently ignoring edits to AUDITOR_INSTRUCTIONS or
+    // ATTEST_MODEL_NAME. Re-running this command is the documented way to
+    // apply such a change, so it has to actually apply it.
+    const { data: agents } = await client.agents.list();
+    const existing = agents.find(a => a.name === 'attest-auditor');
+    if (!existing) throw err;
+
+    await client.agents.update(existing.id, { manifest });
+    console.log('   (updated the existing attest-auditor agent in place)');
+  }
 }
 
 /**

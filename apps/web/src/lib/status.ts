@@ -144,11 +144,26 @@ export function toneClasses(tone: StatusTone) {
   return TONE_CLASSES[tone];
 }
 
+/**
+ * Parse a timestamp that may come from SQLite.
+ *
+ * SQLite's CURRENT_TIMESTAMP produces "YYYY-MM-DD HH:MM:SS" in UTC, with no
+ * timezone marker and a space instead of "T". Passing that straight to
+ * `new Date()` makes engines interpret it as LOCAL time, so every timestamp
+ * rendered in the UI was wrong by the viewer's UTC offset (a run created at
+ * 09:26 local displayed as 03:56). Normalise to explicit UTC first.
+ * Genuine ISO strings already carry an offset and are passed through.
+ */
+function parseTimestamp(value: string): Date {
+  const isSqliteUtc = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value);
+  return new Date(isSqliteUtc ? `${value.replace(' ', 'T')}Z` : value);
+}
+
 /** Formats an ms duration as e.g. "42s", "2m 14s", "1h 05m". Truthful --
  * only ever called with real created_at/updated_at timestamps. */
 export function formatDuration(startIso: string, endIso: string): string {
-  const start = new Date(startIso).getTime();
-  const end = new Date(endIso).getTime();
+  const start = parseTimestamp(startIso).getTime();
+  const end = parseTimestamp(endIso).getTime();
   const totalSeconds = Math.max(0, Math.round((end - start) / 1000));
 
   if (totalSeconds < 60) return `${totalSeconds}s`;
@@ -163,5 +178,13 @@ export function formatDuration(startIso: string, endIso: string): string {
 }
 
 export function formatTimestamp(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  return parseTimestamp(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+/**
+ * Minutes since the given timestamp. Used to detect a run that is nominally
+ * RUNNING but has produced no new events for a while -- i.e. wedged.
+ */
+export function minutesSince(timestamp: string): number {
+  return (Date.now() - parseTimestamp(timestamp).getTime()) / 60000;
 }
