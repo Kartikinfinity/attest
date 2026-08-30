@@ -31,7 +31,9 @@ export async function GET(
           lastId = ev.id;
         }
 
-        if (run.status === 'COMPLETED' || run.status === 'FAILED') {
+        // CANCELLED is terminal too -- without it the SSE stream would poll
+        // forever against a run that will never change again.
+        if (run.status === 'COMPLETED' || run.status === 'FAILED' || run.status === 'CANCELLED') {
           controller.enqueue(
             enc.encode("event: audit_complete\ndata: " + JSON.stringify({ status: run.status }) + "\n\n")
           );

@@ -15,6 +15,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
 import { existsSync, unlinkSync, copyFileSync } from 'node:fs';
+import { killProcessTree } from './helpers/kill-process-tree';
 
 // Same isolation strategy as the invoice-server integration test: a
 // test-specific copy of the fixture, never the main fixture.db.
@@ -58,7 +59,7 @@ describe('notes-server integration', () => {
 
   afterAll(() => {
     if (serverProcess) {
-      serverProcess.kill();
+      killProcessTree(serverProcess);
       serverProcess = null;
     }
     if (existsSync(TEST_FIXTURE)) {

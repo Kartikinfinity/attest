@@ -61,9 +61,13 @@ Tasks:
    - Example Command: cd /home/trueforge/attest-runner && npx tsx sandbox-scripts/test-tool.ts .sandbox-tmp/repo/${SERVER_DIR} <tool_name> .sandbox-tmp/repo/${SERVER_DIR}/fixture.db <port> '<test_input_json>'
    - Return the Evidence JSON to the root agent.
 
-3. After all subagents complete, compile their Evidence.
+2.5. Optional -- only if genuinely applicable: look at the tool names/schemas from step 1. If several tools clearly share one entity (e.g. a tool that creates something alongside tools that read/update/delete that same kind of thing), run ONE additional workflow-chain test using sandbox-scripts/test-workflow.ts on its own fresh fixture copy and port. This calls the related tools in a realistic sequence against ONE shared fixture copy, which can reveal a mismatch that only shows up after a prior step.
+   Command: cd /home/trueforge/attest-runner && npx tsx sandbox-scripts/test-workflow.ts .sandbox-tmp/repo/${SERVER_DIR} .sandbox-tmp/repo/${SERVER_DIR}/fixture.db <port> '[{"toolName":"...","args":{...}}, {"toolName":"...","args":{...}}]'
+   Skip this step entirely if no meaningful multi-tool relationship exists -- it supplements step 2, it never replaces it.
+
+3. After all subagents (and the workflow-chain test, if you ran one) complete, compile their Evidence.
    Do NOT decide the verdicts yourself.
-   
+
 4. Finally, call the \`publish_certification\` tool (from the attest-internal MCP server) with the compiled CertificationReport JSON containing the evidence.
 `;
 

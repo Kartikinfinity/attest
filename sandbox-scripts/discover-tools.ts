@@ -31,6 +31,33 @@ if (!REPO_URL || !SERVER_DIR) {
 const SANDBOX_DIR = path.join(process.cwd(), '.sandbox-tmp');
 const CLONE_DIR = path.join(SANDBOX_DIR, 'repo');
 
+/**
+ * Reliably terminate the spawned server process AND any children npm
+ * creates underneath it. `child.kill()` alone only signals the immediate
+ * child -- on Windows, spawn(..., {shell:true}) runs the command via
+ * cmd.exe, so `.kill()` only terminates that shell wrapper, not the
+ * actual node process npm launches underneath it (confirmed directly
+ * while testing sandbox-scripts/test-workflow.ts, which uses this exact
+ * same spawn pattern: the fixture copy stayed locked and the port stayed
+ * listening after calling .kill() alone). `taskkill /t` kills the whole
+ * tree.
+ */
+function killProcessTree(child: ReturnType<typeof spawn>) {
+  if (process.platform === 'win32' && child.pid) {
+    // execSync, not spawn -- must block until the tree is actually gone
+    // before the caller proceeds. Using spawn() here raced ahead of
+    // taskkill finishing, confirmed directly while testing this exact
+    // pattern in sandbox-scripts/test-workflow.ts.
+    try {
+      execSync(`taskkill /pid ${child.pid} /t /f`, { stdio: 'ignore' });
+    } catch {
+      // Already exited on its own -- taskkill returns non-zero, fine.
+    }
+  } else {
+    child.kill();
+  }
+}
+
 async function waitForServer(port: string) {
   for (let i = 0; i < 30; i++) {
     try {
@@ -100,7 +127,7 @@ async function main() {
 
   } finally {
     console.log('\n[discover-tools] Shutting down server...');
-    serverProcess.kill();
+    killProcessTree(serverProcess);
   }
   
   process.exit(0);

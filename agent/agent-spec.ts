@@ -17,7 +17,7 @@
  */
 
 import { TrueForge } from '@truefoundry/trueforge-sdk';
-import { AUDITOR_INSTRUCTIONS } from './prompts/auditor.js';
+import { buildAuditorManifest } from '@attest/agent-prompts';
 
 /**
  * Create a TrueForge client pointed at the local instance.
@@ -46,36 +46,33 @@ export async function registerAuditorAgent(client: TrueForge): Promise<void> {
     }
   });
 
-  await client.agents.create({
-    name: 'attest-auditor',
-    manifest: {
-      // TEMPORARY: swapped to the free-tier Gemini model to unblock local
-      // E2E testing while the Anthropic account has no API credit. Swap
-      // back to 'anthropic/claude-sonnet-4-6' before the real demo/recording.
-      // Note: TrueForge slugifies registered model names (dots -> dashes),
-      // so this must match the configured `name`, not the raw model_id
-      // ("gemini-3.6-flash") — confirmed via GET /api/v1/settings/model-providers.
-      model: { name: 'google-gemini/gemini-3-6-flash' },
+  // Manifest (model, instructions, MCP servers, sandbox/subagent/iteration
+  // config) comes from the single shared builder in packages/agent-prompts.
+  // Model name and iteration limit are read from ATTEST_MODEL_NAME /
+  // ATTEST_ITERATION_LIMIT env vars, so switching providers (e.g. to a local
+  // DGX Spark endpoint registered in TrueForge as a `custom` model provider,
+  // or back to Anthropic once billing is set up) never needs a code change.
+  const manifest = buildAuditorManifest();
 
-      // Instructions: imported from prompts/ for easy iteration
-      instructions: AUDITOR_INSTRUCTIONS,
+  try {
+    await client.agents.create({ name: 'attest-auditor', manifest });
+    console.log('   (created a new attest-auditor agent)');
+  } catch (err: any) {
+    if (err?.statusCode !== 409) throw err;
 
-      // MCP servers: internal for publishing.
-      // Note: repo cloning is done via plain `git clone` inside the sandbox
-      // (sandbox-scripts/discover-tools.ts), not via a GitHub MCP connector,
-      // so no `github` entry is declared here — it would require a connector
-      // that's never configured and nothing in the execution path calls it.
-      mcpServers: [
-        { name: 'attest-internal', requireApprovalForTools: ['publish_certification'] },
-      ],
+    // Already exists -- reconcile its manifest rather than leaving it stale.
+    // agents.create's name is immutable, but an agent created before a
+    // prompt or model change would otherwise keep running the old manifest
+    // forever, silently ignoring edits to AUDITOR_INSTRUCTIONS or
+    // ATTEST_MODEL_NAME. Re-running this command is the documented way to
+    // apply such a change, so it has to actually apply it.
+    const { data: agents } = await client.agents.list();
+    const existing = agents.find(a => a.name === 'attest-auditor');
+    if (!existing) throw err;
 
-      // Config: enable sandbox isolation + parallel subagent fan-out
-      config: {
-        sandbox: { enabled: true },
-        dynamicSubAgents: { enabled: true },
-      },
-    },
-  });
+    await client.agents.update(existing.id, { manifest });
+    console.log('   (updated the existing attest-auditor agent in place)');
+  }
 }
 
 /**

@@ -1,22 +1,51 @@
 @import "tailwindcss";
 
-@theme inline {
-  --color-background: #fafafa;
-  --color-foreground: #0a0a0a;
+/*
+ * Attest design system.
+ *
+ * A deliberate visual identity, not a neutral-gray restyle: a dark
+ * "chrome" shell (header) paired with light content surfaces -- the same
+ * pattern Datadog/Sentry/GitHub use to read as serious infrastructure
+ * rather than a generic SaaS dashboard -- plus one signature accent color
+ * (a saturated indigo-violet) used consistently for every primary action
+ * and focus state. Status colors (success/warning/danger/info) stay
+ * semantic, not decorative, and are unchanged in meaning.
+ */
+@theme {
+  --color-accent: #6d5ef5;
+  --color-accent-hover: #5b4fe0;
+  --color-accent-soft: #eeecff;
+  --color-chrome: #0b0e14;
+  --color-chrome-foreground: #e5e7eb;
+  --color-chrome-border: #1f2430;
+  --color-canvas: #f7f7fb;
+
   --font-sans: var(--font-inter), system-ui, -apple-system, sans-serif;
   --font-mono: var(--font-jetbrains), "SF Mono", "Fira Code", ui-monospace, monospace;
 }
 
+:root {
+  --surface-1: #ffffff;
+  --surface-2: #f2f1fa;
+  --border-subtle: #e6e5f0;
+  --border-default: #d7d5e8;
+  --text-primary: #0a0a0a;
+  --text-secondary: #525262;
+  --text-tertiary: #9998ab;
+}
+
 body {
-  background: var(--color-background);
-  color: var(--color-foreground);
+  background: var(--color-canvas);
+  color: var(--text-primary);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 *:focus-visible {
-  outline: none;
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 html {
@@ -24,5 +53,27 @@ html {
 }
 
 ::selection {
-  background: #dbeafe;
+  background: var(--color-accent-soft);
+  color: #241f5c;
+}
+
+/* Subtle dot-grid texture for hero/empty-state backgrounds -- a static,
+   very low-opacity pattern (not decoration-for-its-own-sake motion), the
+   same restrained device Linear/Vercel use to add depth without noise. */
+.bg-dot-grid {
+  background-image: radial-gradient(var(--border-default) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+/* Respect reduced-motion preferences globally -- interactions stay
+   instant/functional, just without the animated transition. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

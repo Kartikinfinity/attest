@@ -4,9 +4,11 @@ export interface Run {
   id: string;
   repo_url: string;
   server_dir: string;
-  status: 'PENDING' | 'RUNNING' | 'AWAITING_APPROVAL' | 'COMPLETED' | 'FAILED';
+  status: 'PENDING' | 'RUNNING' | 'AWAITING_APPROVAL' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
   session_id: string | null;
   overall_verdict: string | null;
+  /** Set only when status = 'FAILED' -- see lib/failure-classification.ts. */
+  failure_category: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -38,6 +40,36 @@ export function getRun(id: string): Run | undefined {
 export function listRuns(): Run[] {
   const stmt = db.prepare('SELECT * FROM runs ORDER BY created_at DESC');
   return stmt.all() as Run[];
+}
+
+export interface RunWithSummary extends Run {
+  tools_tested: number;
+  tools_verified: number;
+  tools_failed: number;
+  tools_warning: number;
+}
+
+/**
+ * Same as listRuns(), plus real per-run tool-result aggregates computed in
+ * one query (no N+1, no fabricated numbers -- every count here comes
+ * directly from rows already in tool_results). Powers the dashboard's
+ * "Recent Executions" list, which needs tool counts without a separate
+ * fetch per run.
+ */
+export function listRunsWithSummary(): RunWithSummary[] {
+  const stmt = db.prepare(`
+    SELECT
+      r.*,
+      COUNT(tr.id) as tools_tested,
+      SUM(CASE WHEN tr.verdict = 'VERIFIED' THEN 1 ELSE 0 END) as tools_verified,
+      SUM(CASE WHEN tr.verdict = 'MISMATCH' AND tr.severity = 'HIGH' THEN 1 ELSE 0 END) as tools_failed,
+      SUM(CASE WHEN tr.verdict = 'MISMATCH' AND (tr.severity IS NULL OR tr.severity != 'HIGH') THEN 1 ELSE 0 END) as tools_warning
+    FROM runs r
+    LEFT JOIN tool_results tr ON tr.run_id = r.id
+    GROUP BY r.id
+    ORDER BY r.created_at DESC
+  `);
+  return stmt.all() as RunWithSummary[];
 }
 
 export function addEvent(runId: string, type: string, data: any) {

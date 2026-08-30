@@ -1,8 +1,9 @@
-import { TrueForge, ConflictError } from '@truefoundry/trueforge-sdk';
+import { TrueForge } from '@truefoundry/trueforge-sdk';
 import { updateRun, addEvent, saveToolResult, saveEvidence, getRun, getEvents } from './models';
 // @ts-ignore
 import { deriveVerdict } from '@attest/verdict-engine';
-import { AUDITOR_INSTRUCTIONS } from '../../../agent/prompts/auditor.js';
+import { buildAuditorManifest } from '@attest/agent-prompts';
+import { classifyFailure } from './failure-classification';
 
 export async function registerAuditorAgent(client: TrueForge): Promise<void> {
   await client.settings.mcpServers.createOrUpdate({
@@ -17,32 +18,52 @@ export async function registerAuditorAgent(client: TrueForge): Promise<void> {
   try {
     await client.agents.create({
       name: 'attest-auditor',
-      manifest: {
-        model: { name: 'anthropic/claude-sonnet-4-6' },
-        // Single source of truth for the agent's instructions -- see
-        // agent/prompts/auditor.ts. Do not fork a second copy here.
-        instructions: AUDITOR_INSTRUCTIONS,
-        // Note: no `github` MCP server entry -- cloning is a plain `git
-        // clone` inside the sandbox (sandbox-scripts/discover-tools.ts),
-        // not an MCP tool call, and an unconfigured entry here blocks
-        // registration entirely with a 422.
-        mcpServers: [
-          { name: 'attest-internal', requireApprovalForTools: ['publish_certification'] },
-        ],
-        config: {
-          sandbox: { enabled: true },
-          dynamicSubAgents: { enabled: true },
-        },
-      }
+      // Manifest comes from the single shared builder in
+      // packages/agent-prompts -- see buildAuditorManifest() there. This
+      // used to be a second, independently-drifting copy of the manifest
+      // (previously the actual source of the D.1 instructions-drift bug).
+      // Model name and iteration limit are env-var-driven
+      // (ATTEST_MODEL_NAME / ATTEST_ITERATION_LIMIT), so if you're
+      // running on the free-tier Gemini model while Anthropic billing is
+      // pending, set ATTEST_MODEL_NAME=google-gemini/gemini-3-6-flash in
+      // .env rather than editing code -- see .env.example.
+      manifest: buildAuditorManifest(),
     });
-  } catch (err) {
-    if (err instanceof ConflictError) {
-      // attest-auditor was already registered by a previous audit run in
-      // this TrueForge instance's lifetime. agents.create fails on a
-      // duplicate name -- that's expected here on the 2nd+ run, not a bug.
-      return;
+  } catch (err: any) {
+    // agents.create() throws the SDK's ConflictError (HTTP 409) when
+    // attest-auditor was already registered by a previous audit run in
+    // this TrueForge instance's lifetime -- that's expected on the 2nd+
+    // run, not a bug. Checked via statusCode rather than `instanceof
+    // ConflictError`: the SDK's ESM build (what Next.js's webpack
+    // resolves, vs. the CJS build Node/tsx resolves on the CLI path)
+    // doesn't re-export that class under this package version, which
+    // broke the web app's build entirely -- statusCode is a plain
+    // property on the shared TrueForgeError base class, so it's reliable
+    // regardless of which build got resolved.
+    if (err?.statusCode !== 409) throw err;
+
+    // The agent already exists. Do NOT just return -- the existing agent
+    // still carries whatever manifest it was created with, possibly days
+    // ago. Its instructions and model are then permanently stale: editing
+    // AUDITOR_INSTRUCTIONS or ATTEST_MODEL_NAME would have no effect, and
+    // the audit would keep running against the old system prompt with no
+    // indication anything was ignored. This was a real failure -- an agent
+    // registered before the "never read the target's source" rule existed
+    // kept reading source and never converged.
+    //
+    // agents.create's name is immutable but agents.update replaces the
+    // manifest for an existing agent id, so reconcile it instead.
+    try {
+      const { data: agents } = await client.agents.list();
+      const existing = agents.find((a: any) => a.name === 'attest-auditor');
+      if (existing) {
+        await client.agents.update(existing.id, { manifest: buildAuditorManifest() });
+      }
+    } catch (updateErr: any) {
+      // Reconciliation is best-effort: an audit against a slightly stale
+      // agent is far better than no audit at all, so this must not be fatal.
+      console.error('Could not reconcile existing attest-auditor manifest:', updateErr?.message);
     }
-    throw err;
   }
 }
 
@@ -103,6 +124,51 @@ export function finalizeCertification(runId: string, allow: boolean): void {
   } catch (e) {
     console.error('Failed to parse report while finalizing certification', e);
   }
+}
+
+/**
+ * Cancel a running audit.
+ *
+ * This is a real cancellation, not a cosmetic status flip: it calls
+ * TrueForge's sessions.cancel(), which stops the running turn server-side,
+ * then records the outcome locally. Without it a wedged agent (one looping
+ * on retries, say) leaves a run showing "Running" forever with no way for
+ * an operator to stop it.
+ *
+ * CANCELLED is deliberately its own status rather than being folded into
+ * FAILED -- "a human stopped this" and "this broke" are different
+ * outcomes, and the run's partial evidence stays valid and worth reading
+ * either way.
+ */
+export async function cancelAuditSession(runId: string): Promise<void> {
+  const run = getRun(runId);
+  if (!run) throw new Error(`Run ${runId} not found`);
+
+  // Terminal runs stay as they are -- cancelling a finished audit is a
+  // no-op, not an error worth surfacing to the caller.
+  if (run.status === 'COMPLETED' || run.status === 'FAILED' || run.status === 'CANCELLED') {
+    return;
+  }
+
+  if (run.session_id) {
+    try {
+      const baseUrl = process.env.TRUEFORGE_BASE_URL ?? 'http://localhost:8790';
+      const client = new TrueForge({ baseUrl });
+      await client.sessions.cancel(run.session_id, {});
+    } catch (err: any) {
+      // Still mark it cancelled locally. If TrueForge is unreachable or the
+      // turn already ended, the operator's intent ("stop showing this as
+      // running") is what matters -- failing here would leave the run stuck
+      // in exactly the state they were trying to escape.
+      console.error('sessions.cancel failed; marking cancelled locally anyway:', err?.message);
+      addEvent(runId, 'error', {
+        message: `Cancel requested, but TrueForge's sessions.cancel failed: ${err?.message ?? String(err)}. The run was marked cancelled locally; the agent turn may still be finishing server-side.`,
+      });
+    }
+  }
+
+  addEvent(runId, 'audit.cancelled', { message: 'Audit cancelled by operator.' });
+  updateRun(runId, { status: 'CANCELLED' });
 }
 
 export async function handleApproval(
@@ -166,6 +232,34 @@ memory of a previous "cd". Do NOT rely on an earlier "cd" persisting. Every
 command below must be run using its full path or prefixed with
 "cd /home/trueforge/attest-runner && ...".
 
+=== RULES — these override your own judgment about what would be helpful ===
+
+R1. DO NOT read, cat, open, or grep the target server's source code. You are
+    auditing OBSERVED BEHAVIOR, not source. Reading the implementation would
+    let you infer what a tool "should" do instead of recording what it
+    actually did, which invalidates the entire audit. The only things you may
+    read are the JSON outputs of the scripts listed below.
+
+R2. DO NOT start, stop, or manage the target server yourself. Do not run
+    "npm run start", do not background processes, do not check PIDs, do not
+    curl the server directly. sandbox-scripts/test-tool.ts and
+    test-workflow.ts each start and stop their own server internally. Manual
+    server management is the single most common way this audit goes wrong.
+
+R3. A command may fail with "command execution timeout" (the sandbox enforces
+    a ~60s ceiling per command). If that happens, DO NOT immediately re-run
+    the same command. First re-read the output you already have: these
+    scripts print their result before finishing, so the evidence may already
+    be present. Only retry if there is genuinely no output, and retry a given
+    command AT MOST ONCE.
+
+R4. Once a tool has produced an "--- EVIDENCE JSON ---" block, that tool is
+    DONE. Never test it a second time. Record the evidence and move on.
+
+R5. When every discovered tool has one evidence object, go straight to the
+    final step and call publish_certification. Do not do additional
+    exploration, verification, or tidying first. Finishing is the goal.
+
 Tasks:
 0. Before anything else, confirm Node.js and npx are available in this sandbox:
    Command: node --version && npx --version
@@ -190,8 +284,12 @@ Tasks:
    - Example Command: cd /home/trueforge/attest-runner && npx tsx sandbox-scripts/test-tool.ts .sandbox-tmp/repo/${serverDir} <tool_name> .sandbox-tmp/repo/${serverDir}/fixture.db <port> '<test_input_json>'
    - Return the Evidence JSON to the root agent.
 
-3. After all subagents complete, compile their Evidence into a JSON array called \`evidenceArray\`.
-   For each evidence, ensure you pair it with the corresponding \`ToolBehaviorClaim\` (from the discover-tools.ts output).
+2.5. Optional -- only if genuinely applicable: look at the tool names/schemas from step 1. If several tools clearly share one entity (e.g. a tool that creates something alongside tools that read/update/delete that same kind of thing), run ONE additional workflow-chain test using sandbox-scripts/test-workflow.ts on its own fresh fixture copy and port. This calls the related tools in a realistic sequence against ONE shared fixture copy (not isolated per-call), which can reveal a mismatch that only shows up after a prior step.
+   Command: cd /home/trueforge/attest-runner && npx tsx sandbox-scripts/test-workflow.ts .sandbox-tmp/repo/${serverDir} .sandbox-tmp/repo/${serverDir}/fixture.db <port> '[{"toolName":"...","args":{...}}, {"toolName":"...","args":{...}}]'
+   This prints a WORKFLOW EVIDENCE JSON array -- one Evidence object per step, in the exact same shape test-tool.ts produces. Skip this step entirely if no meaningful multi-tool relationship exists for this server -- it supplements the per-tool tests in step 2, it never replaces them.
+
+3. After all subagents (and the workflow-chain test, if you ran one) complete, compile ALL of their Evidence into a JSON array called \`evidenceArray\`.
+   For each evidence entry, ensure you pair it with the corresponding \`ToolBehaviorClaim\` (from the discover-tools.ts output), matched by toolName. A tool tested both in isolation and as part of a chain will legitimately produce two separate (claim, evidence) pairs -- include both.
 
 4. Finally, call the \`publish_certification\` tool (from the attest-internal MCP server) with a JSON string containing \`{ evidence: evidenceArray, claims: claimsArray }\`.`;
 
@@ -201,7 +299,16 @@ Tasks:
 
     async function consumeStream(currentStream: any) {
       for await (const { data: event } of currentStream.withMetadata()) {
-        addEvent(runId, event.type, event);
+        // Skip token-streaming fragments. These are assembly artifacts of
+        // the model's output, not audit events: the completed text arrives
+        // separately as model.message, and nothing in the UI reads deltas.
+        // Persisting them was 81% of the event log by count (619 of 765 on
+        // one real run) and 149KB of the 250KB payload -- written to SQLite,
+        // pushed over SSE, accumulated in React state, and rendered in the
+        // raw log, for no informational gain.
+        if (!event.type.endsWith('.delta')) {
+          addEvent(runId, event.type, event);
+        }
 
         if (event.type === 'tool.approval_required') {
           // Note: verdicts/evidence are intentionally NOT computed or
@@ -214,6 +321,19 @@ Tasks:
           updateRun(runId, { status: 'AWAITING_APPROVAL' });
           return;
         } else if (event.type === 'turn.done') {
+          // A provider/model-level failure (e.g. a rate limit or billing
+          // error from the underlying LLM) surfaces as DATA inside this
+          // event (event.state.status === 'error'), not as a thrown JS
+          // exception -- the stream just ends normally either way. Without
+          // this check, the run falls through to the unconditional
+          // "still RUNNING -> COMPLETED" update below regardless of
+          // whether the turn actually succeeded, which is misleading for
+          // a tool whose whole premise is trustworthy status reporting.
+          if (event.state?.status === 'error') {
+            const message = event.state?.message ?? 'Turn ended with an error';
+            updateRun(runId, { status: 'FAILED', failure_category: classifyFailure(message) });
+            addEvent(runId, 'error', { message });
+          }
         }
       }
     }
@@ -227,7 +347,7 @@ Tasks:
 
   } catch (err: any) {
     console.error("Audit session failed:", err);
-    updateRun(runId, { status: 'FAILED' });
+    updateRun(runId, { status: 'FAILED', failure_category: classifyFailure(err.message) });
     addEvent(runId, 'error', { message: err.message });
   }
 }

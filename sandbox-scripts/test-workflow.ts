@@ -1,14 +1,34 @@
 /**
- * Sandbox Script: Test Tool
+ * Sandbox Script: Test Workflow
  *
- * Runs inside the TrueForge/Daytona sandbox to execute a single MCP tool test
- * and produce a deterministic Evidence object (before/after fixture diff).
+ * Like test-tool.ts, but executes a SEQUENCE of related tool calls against
+ * ONE shared fixture copy, producing a step-by-step Evidence timeline
+ * instead of a single before/after diff.
+ *
+ * Why this exists: isolated single-call testing (test-tool.ts) catches a
+ * mismatch that shows up on its own, but not one that only appears after a
+ * prior step -- e.g. a "delete" tool that behaves correctly on an empty
+ * fixture but misbehaves once something has actually been created and
+ * modified. Tools that share an entity (create_X / get_X / update_X /
+ * delete_X) are meaningfully related; testing them as a chain investigates
+ * that relationship instead of treating every tool as independent.
+ *
+ * This supplements test-tool.ts's isolated tests -- it does not replace
+ * them, and it does not change how a verdict is derived: each step's
+ * Evidence object has the exact same shape test-tool.ts produces
+ * (toolName/testInput/before/after/diff/rawResponse), so it feeds into the
+ * SAME deterministic deriveVerdict() unchanged. This script only changes
+ * how evidence is gathered, never how it's judged.
  *
  * Usage:
- *   npx tsx <path-to-attest-repo>/sandbox-scripts/test-tool.ts <server-dir> <tool-name> <fixture-path> <port> '<mcp-args-json>'
+ *   npx tsx test-workflow.ts <serverDir> <fixtureSource> <port> '<stepsJson>'
+ *   where stepsJson is: [{"toolName": "...", "args": {...}}, ...]
  *
  * Example:
- *   npx tsx ../../sandbox-scripts/test-tool.ts . get_invoice fixture.db 3005 '{"invoice_id": 1}'
+ *   npx tsx test-workflow.ts . fixture.db 3010 \
+ *     '[{"toolName":"create_invoice","args":{"customer":"Acme","amount":10}},
+ *       {"toolName":"get_invoice","args":{"invoice_id":4}},
+ *       {"toolName":"list_invoices","args":{}}]'
  */
 
 import { spawn, execSync } from 'node:child_process';
@@ -17,18 +37,27 @@ import Database from 'better-sqlite3';
 import path from 'node:path';
 
 const serverDir = process.argv[2];
-const toolName = process.argv[3];
-const fixtureSource = process.argv[4];
-const port = process.argv[5];
-const argsJson = process.argv[6];
+const fixtureSource = process.argv[3];
+const port = process.argv[4];
+const stepsJson = process.argv[5];
 
-if (!serverDir || !toolName || !fixtureSource || !port || !argsJson) {
-  console.error('Usage: test-tool.ts <serverDir> <toolName> <fixtureSource> <port> <argsJson>');
+if (!serverDir || !fixtureSource || !port || !stepsJson) {
+  console.error('Usage: test-workflow.ts <serverDir> <fixtureSource> <port> <stepsJson>');
   process.exit(1);
 }
 
-const args = JSON.parse(argsJson);
-const fixtureCopy = `${fixtureSource}.test-${port}.db`;
+interface WorkflowStep {
+  toolName: string;
+  args: Record<string, unknown>;
+}
+
+const steps: WorkflowStep[] = JSON.parse(stepsJson);
+if (!Array.isArray(steps) || steps.length === 0) {
+  console.error('stepsJson must be a non-empty JSON array of {toolName, args}');
+  process.exit(1);
+}
+
+const fixtureCopy = `${fixtureSource}.workflow-${port}.db`;
 
 async function getSnapshot(dbPath: string) {
   const db = new Database(dbPath, { readonly: true });
@@ -36,7 +65,6 @@ async function getSnapshot(dbPath: string) {
   const rows: Record<string, unknown[]> = {};
   for (const table of tables) {
     if (table.name === 'sqlite_sequence') continue;
-    // Safely quote table names
     rows[table.name] = db.prepare(`SELECT * FROM "${table.name.replace(/"/g, '""')}"`).all();
   }
   db.close();
@@ -62,7 +90,7 @@ function computeDiff(before: any, after: any) {
 
     const bRows = before.rows[table];
     const aRows = after.rows[table];
-    
+
     if (aRows.length > bRows.length) {
       diff.push({ table, change: 'added', rowSummary: `${aRows.length - bRows.length} rows added` });
     } else if (aRows.length < bRows.length) {
@@ -80,10 +108,9 @@ function computeDiff(before: any, after: any) {
  * child -- on Windows, spawn(..., {shell:true}) runs the command via
  * cmd.exe, so `.kill()` only terminates that shell wrapper, not the
  * actual node process npm launches underneath it (confirmed directly
- * while testing sandbox-scripts/test-workflow.ts, which uses this exact
- * same spawn pattern: the fixture copy stayed locked and the port stayed
- * listening after calling .kill() alone). `taskkill /t` kills the whole
- * tree.
+ * while testing this script: the fixture copy stayed locked and the
+ * port stayed listening after calling .kill() alone). `taskkill /t`
+ * kills the whole tree.
  */
 function killProcessTree(child: ReturnType<typeof spawn>) {
   if (process.platform === 'win32' && child.pid) {
@@ -125,7 +152,6 @@ async function main() {
   }
 
   copyFileSync(fixtureSource, fixtureCopy);
-  const beforeSnapshot = await getSnapshot(fixtureCopy);
 
   const serverProcess = spawn('npm', ['run', 'start'], {
     cwd: serverDir,
@@ -137,38 +163,60 @@ async function main() {
   try {
     await waitForServer(port);
 
-    const res = await fetch(`http://localhost:${port}/mcp`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 2,
-        method: 'tools/call',
-        params: { name: toolName, arguments: args },
-      }),
-    });
+    const timeline: unknown[] = [];
+    let previousSnapshot = await getSnapshot(fixtureCopy);
 
-    const rawResponse = await res.json();
-    
-    if (!res.ok || rawResponse.error) {
-      throw new Error(`MCP test call failed: ${JSON.stringify(rawResponse)}`);
+    for (const step of steps) {
+      const beforeSnapshot = previousSnapshot;
+
+      const res = await fetch(`http://localhost:${port}/mcp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 2,
+          method: 'tools/call',
+          params: { name: step.toolName, arguments: step.args },
+        }),
+      });
+
+      const rawResponse = await res.json();
+
+      if (!res.ok || rawResponse.error) {
+        // Stop the chain on a hard failure -- continuing to call further
+        // steps against a server that just errored would produce
+        // meaningless evidence for the remaining tools, not useful
+        // findings. The steps already completed are still real evidence.
+        timeline.push({
+          toolName: step.toolName,
+          testInput: step.args,
+          before: beforeSnapshot,
+          after: beforeSnapshot,
+          diff: [],
+          rawResponse,
+          stepError: `Call failed: ${JSON.stringify(rawResponse)}`,
+        });
+        break;
+      }
+
+      const afterSnapshot = await getSnapshot(fixtureCopy);
+      const diff = computeDiff(beforeSnapshot, afterSnapshot);
+
+      timeline.push({
+        toolName: step.toolName,
+        testInput: step.args,
+        before: beforeSnapshot,
+        after: afterSnapshot,
+        diff,
+        rawResponse,
+      });
+
+      previousSnapshot = afterSnapshot;
     }
 
-    const afterSnapshot = await getSnapshot(fixtureCopy);
-    const diff = computeDiff(beforeSnapshot, afterSnapshot);
-
-    const evidence = {
-      toolName,
-      testInput: args,
-      before: beforeSnapshot,
-      after: afterSnapshot,
-      diff,
-      rawResponse,
-    };
-
-    console.log('--- EVIDENCE JSON ---');
-    console.log(JSON.stringify(evidence, null, 2));
-    console.log('---------------------');
+    console.log('--- WORKFLOW EVIDENCE JSON ---');
+    console.log(JSON.stringify(timeline, null, 2));
+    console.log('------------------------------');
   } finally {
     killProcessTree(serverProcess);
     try {
@@ -180,6 +228,6 @@ async function main() {
 }
 
 main().catch(err => {
-  console.error(`[test-tool] ❌ Error: ${err.message}`);
+  console.error(`[test-workflow] ❌ Error: ${err.message}`);
   process.exit(1);
 });

@@ -17,6 +17,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
 import { existsSync, unlinkSync, copyFileSync } from 'node:fs';
+import { killProcessTree } from './helpers/kill-process-tree';
 
 // We'll use a test-specific copy of the fixture to avoid contaminating
 // the main fixture.db (same isolation strategy Attest uses in production)
@@ -65,7 +66,7 @@ describe('invoice-server integration', () => {
 
   afterAll(() => {
     if (serverProcess) {
-      serverProcess.kill();
+      killProcessTree(serverProcess);
       serverProcess = null;
     }
     // Clean up test fixture

@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
-import { createRun, listRuns } from '../../../../lib/models';
+import { createRun, listRunsWithSummary } from '../../../../lib/models';
 import { runAuditSession } from '../../../../lib/engine';
 
 export const dynamic = 'force-dynamic';
 export async function GET() {
-  const runs = listRuns();
+  const runs = listRunsWithSummary();
   return NextResponse.json(runs);
 }
 
