@@ -67,21 +67,34 @@ export async function registerAuditorAgent(client: TrueForge): Promise<void> {
   }
 }
 
+const ATTEST_INTERNAL_URL = process.env.ATTEST_INTERNAL_URL ?? 'http://localhost:3009';
+
 /**
- * Find the most recent `publish_certification` report data captured in this
- * run's event log. The raw report was already persisted by addEvent() when
- * `tool.approval_required` fired -- this just retrieves it, it doesn't
- * re-run any part of the audit.
+ * Retrieve the certification report the agent submitted.
+ *
+ * This deliberately does NOT read Attest's own event log. TrueForge's
+ * `tool.approval_required` event carries only {id, sourceEventId} per tool
+ * call -- no name and no arguments -- and the arguments themselves arrive
+ * only as streamed `model.message.delta` fragments that would have to be
+ * reassembled. An earlier version searched that event for
+ * `toolCalls[].name === 'publish_certification'` and `.arguments.report`,
+ * which never matched anything: it silently returned null, so a fully
+ * successful audit that reached the approval gate and published still
+ * persisted zero verdicts and zero evidence.
+ *
+ * attest-internal receives the finished report as a single string, so it
+ * is the reliable source. See its /report/:runId endpoint.
  */
-function extractPendingReport(runId: string): string | null {
-  const events = getEvents(runId);
-  for (let i = events.length - 1; i >= 0; i--) {
-    const event = events[i];
-    if (event.type !== 'tool.approval_required') continue;
-    const publishCall = event.data?.toolCalls?.find((t: any) => t.name === 'publish_certification');
-    if (publishCall?.arguments?.report) return publishCall.arguments.report as string;
+async function fetchPublishedReport(runId: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${ATTEST_INTERNAL_URL}/report/${encodeURIComponent(runId)}`);
+    if (!res.ok) return null;
+    const body = await res.json();
+    return typeof body?.report === 'string' ? body.report : null;
+  } catch (err: any) {
+    console.error('Could not fetch published report from attest-internal:', err?.message);
+    return null;
   }
-  return null;
 }
 
 /**
@@ -98,31 +111,68 @@ function extractPendingReport(runId: string): string | null {
  * happens on Allow -- on Deny it's explicitly 'DENIED', never
  * CERTIFIED/FLAGGED.
  */
-export function finalizeCertification(runId: string, allow: boolean): void {
-  const reportJson = extractPendingReport(runId);
-  if (!reportJson) return;
+export async function finalizeCertification(runId: string, allow: boolean): Promise<void> {
+  const reportJson = await fetchPublishedReport(runId);
+
+  if (!reportJson) {
+    // Record why rather than failing silently -- a run that reaches the
+    // gate and then shows no verdicts is the single most confusing state
+    // this system can end up in, and it is exactly what used to happen.
+    addEvent(runId, 'error', {
+      message:
+        'Approval was recorded, but no certification report could be retrieved from attest-internal. ' +
+        'Verdicts could not be derived. Check that attest-internal is running and reachable at ' +
+        `${ATTEST_INTERNAL_URL}.`,
+    });
+    updateRun(runId, { overall_verdict: allow ? 'UNSCORED' : 'DENIED' });
+    return;
+  }
 
   try {
     const reportData = JSON.parse(reportJson);
     let mismatches = 0;
+    let scored = 0;
 
-    if (reportData.claims && reportData.evidence) {
-      for (let i = 0; i < reportData.claims.length; i++) {
-        const claim = reportData.claims[i];
-        const evidence = reportData.evidence[i];
-        saveEvidence(runId, claim.toolName, evidence);
+    // Pair claims to evidence by toolName rather than array index. The
+    // agent assembles these two arrays separately, and nothing guarantees
+    // they come back in the same order -- index-pairing would silently
+    // score one tool's evidence against another tool's declaration.
+    const claims: any[] = Array.isArray(reportData.claims) ? reportData.claims : [];
+    const evidenceList: any[] = Array.isArray(reportData.evidence) ? reportData.evidence : [];
 
-        const verdict = deriveVerdict(claim, evidence);
-        const severity = verdict.kind === 'MISMATCH' ? (verdict as any).severity : null;
-        saveToolResult(runId, claim.toolName, claim.declaredReadOnly ?? null, verdict.kind, severity);
+    for (const claim of claims) {
+      const evidence =
+        evidenceList.find((e: any) => e?.toolName === claim?.toolName) ??
+        evidenceList[claims.indexOf(claim)];
+      if (!evidence) continue;
 
-        if (verdict.kind === 'MISMATCH') mismatches++;
-      }
+      saveEvidence(runId, claim.toolName, evidence);
+
+      const verdict = deriveVerdict(claim, evidence);
+      const severity = verdict.kind === 'MISMATCH' ? (verdict as any).severity : null;
+      saveToolResult(runId, claim.toolName, claim.declaredReadOnly ?? null, verdict.kind, severity);
+
+      scored++;
+      if (verdict.kind === 'MISMATCH') mismatches++;
+    }
+
+    if (scored === 0) {
+      addEvent(runId, 'error', {
+        message:
+          'A certification report was retrieved but contained no matchable claim/evidence pairs, ' +
+          'so no verdicts could be derived.',
+      });
+      updateRun(runId, { overall_verdict: allow ? 'UNSCORED' : 'DENIED' });
+      return;
     }
 
     updateRun(runId, { overall_verdict: allow ? (mismatches > 0 ? 'FLAGGED' : 'CERTIFIED') : 'DENIED' });
-  } catch (e) {
+  } catch (e: any) {
     console.error('Failed to parse report while finalizing certification', e);
+    addEvent(runId, 'error', {
+      message: `The certification report could not be parsed as JSON: ${e?.message ?? String(e)}`,
+    });
+    updateRun(runId, { overall_verdict: allow ? 'UNSCORED' : 'DENIED' });
   }
 }
 
@@ -345,7 +395,17 @@ Tasks:
 
    Then call the \`publish_certification\` tool (from the attest-internal MCP
    server) with a JSON string containing
-   \`{ evidence: evidenceArray, claims: claimsArray }\`.
+   \`{ runId: "${runId}", evidence: evidenceArray, claims: claimsArray }\`.
+
+   The runId field is REQUIRED and must be exactly "${runId}" -- Attest uses
+   it to match the published report back to this audit so it can score the
+   verdicts. Omitting it means the report cannot be attributed and no
+   certificate is produced.
+
+   Each entry in claimsArray must be
+   \`{ toolName: "...", declaredReadOnly: true|false|null }\`, taken from that
+   tool's annotations in step 1 (declaredReadOnly is its readOnlyHint; use
+   null if the tool declared none).
 
    Do NOT do any further exploration before publishing. Publishing is the
    goal, and it pauses for a human to approve -- that pause is expected.`;

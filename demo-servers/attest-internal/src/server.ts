@@ -5,6 +5,17 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3009;
 
+/**
+ * Published certification reports, keyed by runId, so Attest can fetch the
+ * exact report the agent submitted. In-memory on purpose: a report is only
+ * needed for the few seconds between publication and Attest scoring it, and
+ * Attest persists the derived verdicts itself. Restarting this server
+ * during an in-flight audit loses the report -- an accepted trade for a
+ * demo-scale service with no datastore of its own.
+ */
+const reports = new Map<string, string>();
+let latestReport: string | null = null;
+
 app.post('/mcp', (req, res) => {
   const { jsonrpc, id, method, params } = req.body;
 
@@ -82,7 +93,31 @@ app.post('/mcp', (req, res) => {
     if (params.name === 'publish_certification') {
       const { report } = params.arguments;
       console.log(`[attest-internal] Certification published:`, report);
-      
+
+      // Hand the report back to Attest.
+      //
+      // Attest cannot recover it from its own event log: TrueForge's
+      // `tool.approval_required` event carries only {id, sourceEventId}
+      // per tool call -- no name, no arguments -- and the arguments
+      // themselves only ever arrive as streamed `model.message.delta`
+      // fragments that would have to be reassembled. This server, by
+      // contrast, receives the finished report as a single string.
+      //
+      // Keyed by the runId the agent is instructed to embed in the
+      // report, so concurrent audits don't collide. `latest` is a
+      // fallback for the case where the agent omits it -- correct for a
+      // single active audit, and better than losing the report entirely.
+      try {
+        const parsed = JSON.parse(report);
+        if (parsed && typeof parsed.runId === 'string') {
+          reports.set(parsed.runId, report);
+        }
+      } catch {
+        // A report that isn't valid JSON still reaches `latest`; Attest
+        // will surface the parse failure rather than this server guessing.
+      }
+      latestReport = report;
+
       return res.json({
         jsonrpc: '2.0',
         id,
@@ -125,6 +160,17 @@ app.get('/mcp', (_req, res) => {
     jsonrpc: '2.0',
     error: { code: -32601, message: 'This server does not provide an SSE stream; POST to /mcp instead.' }
   });
+});
+
+/**
+ * Attest fetches the published report here after the human approves.
+ * Falls back to the most recent report when the agent omitted runId.
+ */
+app.get('/report/:runId', (req, res) => {
+  const exact = reports.get(req.params.runId);
+  if (exact) return res.json({ found: true, source: 'runId', report: exact });
+  if (latestReport) return res.json({ found: true, source: 'latest', report: latestReport });
+  res.status(404).json({ found: false, error: 'No certification report has been published yet.' });
 });
 
 app.get('/health', (_req, res) => {
